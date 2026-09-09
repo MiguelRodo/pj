@@ -1,0 +1,24 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run launcher offline and migration tests
+        run: bash tests/run.sh
+      - name: Run queue option tests
+        run: bash tests/queue-options.sh
+      - name: Run workspace AGENTS context tests
+        run: bash tests/workspace-context.sh
+      - name: Run managed skill updater tests
+        run: bash tests/update-managed-skills.sh
