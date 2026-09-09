@@ -82,7 +82,7 @@ grep -Fq 'Keep this home-authored line intact.' "$home/AGENTS.md" || exit 1
 [ "$(grep -Fc '<!-- managed-projects:start -->' "$home/AGENTS.md")" -eq 0 ] || exit 1
 [ "$(stat -c '%a' "$home/AGENTS.md")" = 640 ] || exit 1
 grep -Fq '<!-- pj-managed-projects:start -->' "$home/AGENTS.md" || exit 1
-grep -Fq 'pj-update-skills' "$home/AGENTS.md" || exit 1
+grep -Fq 'pj --update-skill' "$home/AGENTS.md" || exit 1
 grep -Fq 'Optional `agy` subagent delegation' "$home/AGENTS.md" || exit 1
 grep -Fq 'Only Codex and GitHub Copilot CLI may use `agy`' "$home/AGENTS.md" || exit 1
 grep -Fq 'Antigravity itself must not invoke `agy` recursively' "$home/AGENTS.md" || exit 1
@@ -98,7 +98,7 @@ grep -Fq '<!-- pj-managed-projects:start -->' "$workspace/AGENTS.md" || exit 1
 grep -Fq 'Natural-language' "$workspace/AGENTS.md" || exit 1
 grep -Fq 'process the implementation issues for X' "$workspace/AGENTS.md" || exit 1
 grep -Fq 'references/local-implementation-queue.md' "$workspace/AGENTS.md" || exit 1
-grep -Fq 'pj-update-skills' "$workspace/AGENTS.md" || exit 1
+grep -Fq 'pj --update-skill' "$workspace/AGENTS.md" || exit 1
 [ "$(stat -c '%a' "$workspace/AGENTS.md")" = 600 ] || exit 1
 
 for context in \
@@ -300,7 +300,7 @@ HOME="$home" \
 
 grep -Fq '<!-- pj-managed-projects:start -->' "$custom_workspace/AGENTS.md" || exit 1
 grep -Fq 'Shared `pj` planning workspace' "$custom_workspace/AGENTS.md" || exit 1
-grep -Fq 'pj-update-skills' "$home/AGENTS.md" || exit 1
+grep -Fq 'pj --update-skill' "$home/AGENTS.md" || exit 1
 grep -Fq 'Optional `agy` subagent delegation' "$home/AGENTS.md" || exit 1
 
 printf 'workspace AGENTS context tests passed\n'

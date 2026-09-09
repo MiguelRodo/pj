@@ -140,13 +140,13 @@ pjcp -o -- "Check this Project state once"
 
 ## Update the shared Project skill everywhere
 
-The installer also provides:
+The canonical entry point is:
 
 ```bash
-pj-update-skills
+pj --update-skill
 ```
 
-Run it when you want to refresh `github-projects` across the managed repositories under `${PJ_WORKSPACE:-~/planning}`. The updater:
+A legacy `pj-update-skills` shim remains for older shell setups, but the maintained interface is `pj --update-skill`. Run it when you want to refresh `github-projects` across the managed repositories under `${PJ_WORKSPACE:-~/planning}`. The updater:
 
 1. temporarily stashes existing local work in each repository;
 2. fetches upstream changes and uses an explicit non-fast-forward merge when the upstream is not already contained locally;
@@ -157,7 +157,7 @@ Run it when you want to refresh `github-projects` across the managed repositorie
 
 The canonical `github-projects-skill` repository is synced but is not asked to update an installed copy of its own skill. A repository that cannot merge, update, push or restore its stash is reported as a failure rather than silently treated as successful.
 
-Agents launched under the home or planning `AGENTS.md` guidance are told to use `pj-update-skills` when the operator explicitly asks them to update the shared skill across local repositories, instead of building another one-off shell loop.
+Agents launched under the home or planning `AGENTS.md` guidance are told to use `pj --update-skill` when the operator explicitly asks them to update the shared skill across local repositories, instead of building another one-off shell loop.
 
 ## Chat implementation queue
 

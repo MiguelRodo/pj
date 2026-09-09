@@ -4,6 +4,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 launcher_source="$script_dir/pj"
 skill_update_source="$script_dir/update-managed-skills.sh"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+skill_update_logic_target=""
 config_dir="$config_home/pj"
 default_backend_file="$config_dir/default-backend"
 install_bin_dir_file="$config_dir/install-bin-dir"
@@ -85,10 +87,12 @@ launcher_target="$launcher_dir/pj"
 antigravity_target="$launcher_dir/pja"
 copilot_target="$launcher_dir/pjcp"
 codex_target="$launcher_dir/pjcd"
+skill_data_dir="$data_home/pj"
+skill_update_logic_target="$skill_data_dir/update-managed-skills.sh"
 skill_update_target="$launcher_dir/pj-update-skills"
 legacy_copilot_target="$launcher_dir/pjc"
 
-mkdir -p "$launcher_dir" "$config_dir" "$workspace" || exit 1
+mkdir -p "$launcher_dir" "$config_dir" "$skill_data_dir" "$workspace" || exit 1
 
 managed_aliases_point_to() {
   target="$1"
@@ -109,6 +113,7 @@ remove_previous_managed_install() {
   previous_pja="$previous_dir/pja"
   previous_pjcp="$previous_dir/pjcp"
   previous_pjcd="$previous_dir/pjcd"
+  previous_skill_logic="$previous_dir/update-managed-skills.sh"
   previous_skill_update="$previous_dir/pj-update-skills"
   previous_pjc="$previous_dir/pjc"
 
@@ -119,6 +124,7 @@ remove_previous_managed_install() {
     if [ -L "$previous_pjcp" ] && [ "$(readlink "$previous_pjcp")" = "$previous_target" ]; then
       rm -f "$previous_pjcp" || exit 1
     fi
+    rm -f "$previous_skill_logic" || exit 1
     rm -f "$previous_skill_update" || exit 1
     if [ -L "$previous_pjc" ] && [ "$(readlink "$previous_pjc")" = "$previous_target" ]; then
       rm -f "$previous_pjc" || exit 1
@@ -137,7 +143,13 @@ elif [ "$launcher_dir" != "$HOME/bin" ]; then
 fi
 
 install -m 0755 "$launcher_source" "$launcher_target" || exit 1
-install -m 0755 "$skill_update_source" "$skill_update_target" || exit 1
+install -m 0755 "$skill_update_source" "$skill_update_logic_target" || exit 1
+cat > "$skill_update_target" <<'EOF_WRAPPER'
+#!/usr/bin/env bash
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+exec "$script_dir/pj" --update-skill "$@"
+EOF_WRAPPER
+chmod 0755 "$skill_update_target" || exit 1
 ln -sfn "$launcher_target" "$antigravity_target" || exit 1
 ln -sfn "$launcher_target" "$copilot_target" || exit 1
 ln -sfn "$launcher_target" "$codex_target" || exit 1
@@ -283,15 +295,18 @@ write_home_context_block() {
 The shared local planning workspace is `${PJ_WORKSPACE:-~/planning}`. When the
 operator explicitly asks to update or refresh the installed
 `github-projects` skill across the managed repositories in that workspace,
-run `pj-update-skills` rather than constructing an ad hoc repository loop.
+run `pj --update-skill` rather than constructing an ad hoc repository loop.
 
-`pj-update-skills` temporarily stashes pre-existing local work, fetches and
+The `pj --update-skill` path temporarily stashes pre-existing local work, fetches and
 merges upstream changes with an explicit merge commit when needed, updates the
 installed `github-projects` skill non-interactively, commits only the skill
 refresh, pushes the branch and restores the operator's previous local work. It
 skips the installed-skill refresh in the canonical `github-projects-skill` source repository.
 If a repository fails to merge, update, push or restore its stash, report the
 exact repository and error rather than claiming the whole update succeeded.
+
+The legacy `pj-update-skills` launcher remains as a compatibility shim for older
+shell setup, but the canonical entry point is `pj --update-skill`.
 
 For ordinary GitHub task and Project administration, continue into the planning
 workspace and follow its `AGENTS.md`, then the resolved repository's own
@@ -430,7 +445,7 @@ For each such request:
    read back every completed GitHub mutation before reporting success.
 
 If the operator explicitly asks to update or refresh `github-projects`
-across the local managed repositories, use `pj-update-skills`. Do not recreate a
+across the local managed repositories, use `pj --update-skill`. Do not recreate a
 one-off loop unless that installed updater is unavailable. Treat this as local
 operator maintenance rather than an issue or Project mutation.
 
@@ -467,7 +482,8 @@ printf 'Installed pj at %s\n' "$launcher_target"
 printf 'Installed pja -> pj at %s\n' "$antigravity_target"
 printf 'Installed pjcp -> pj at %s\n' "$copilot_target"
 printf 'Installed pjcd -> pj at %s\n' "$codex_target"
-printf 'Installed pj-update-skills at %s\n' "$skill_update_target"
+printf 'Installed update-managed-skills.sh at %s\n' "$skill_update_logic_target"
+printf 'Installed pj-update-skills compatibility shim at %s\n' "$skill_update_target"
 printf 'Recorded pj install directory in %s\n' "$install_bin_dir_file"
 printf 'Configured pj default backend in %s\n' "$default_backend_file"
 printf 'Updated canonical home agent guidance at %s\n' "$home_context"

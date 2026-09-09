@@ -153,11 +153,16 @@ grep -Fq 'github-repo: https://github.com/MiguelRodo/projects' "$workspace/legac
 [ -n "$(git -C "$workspace/legacy_demo" status --porcelain -- local.txt)" ] || exit 1
 git --git-dir="$legacy_remote" show main:local.txt | grep -Fxq 'legacy remote baseline' || exit 1
 
-# Subsequent retry / successful run succeeds
+# Subsequent retry / successful run succeeds via both the legacy script and the
+# canonical `pj --update-skill` entry point.
 HOME="$home" \
   PJ_WORKSPACE="$workspace" \
   PATH="$fake_bin:/usr/bin:/bin" \
   bash "$updater" >/dev/null || exit 1
+HOME="$home" \
+  PJ_WORKSPACE="$workspace" \
+  PATH="$fake_bin:/usr/bin:/bin" \
+  bash "$operator_dir/pj" --update-skill >/dev/null || exit 1
 
 # Modern repo: skill refresh was committed and pushed.
 [ "$(cat "$workspace/demo/.agents/skills/github-projects/SKILL.md")" = "$(cat <<'SKILL_EOF'

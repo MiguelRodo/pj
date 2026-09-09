@@ -245,6 +245,27 @@ if [ "${1:-}" = "--reset-model" ] || [ "${1:-}" = "--clear-model" ]; then
   reset_backend_model "$@"
 fi
 
+if [ "${1:-}" = "--update-skill" ]; then
+  shift
+  if [ "$#" -gt 0 ]; then
+    echo "pj: --update-skill does not take arguments" >&2
+    exit 2
+  fi
+
+  data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  updater="$data_home/pj/update-managed-skills.sh"
+  if [ ! -f "$updater" ]; then
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+    updater="$script_dir/update-managed-skills.sh"
+  fi
+  if [ ! -f "$updater" ]; then
+    echo "pj: could not find updater script at $updater" >&2
+    exit 1
+  fi
+
+  exec bash "$updater"
+fi
+
 launcher_name="$(basename "$0")"
 case "$launcher_name" in
   pja)
