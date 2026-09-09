@@ -14,6 +14,10 @@ is_canonical_skill_repo() {
   git -C "$path" remote get-url origin 2>/dev/null | grep -Eq '(github-projects-skill|MiguelRodo/projects-skill)'
 }
 
+if [ "$(basename "$0")" = "pj-update-skills" ] && command -v pj >/dev/null 2>&1; then
+  exec pj --update-skill "$@"
+fi
+
 if ! command -v git >/dev/null 2>&1; then
   echo "pj-update-skills: git is required." >&2
   exit 1
