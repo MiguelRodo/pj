@@ -19,23 +19,23 @@ if [ "$(basename "$0")" = "pj-update-skills" ] && command -v pj >/dev/null 2>&1;
 fi
 
 if ! command -v git >/dev/null 2>&1; then
-  echo "pj-update-skills: git is required." >&2
+  echo "pj --update-skill: git is required." >&2
   exit 1
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
-  echo "pj-update-skills: GitHub CLI (gh) is required." >&2
+  echo "pj --update-skill: GitHub CLI (gh) is required." >&2
   exit 1
 fi
 
 if ! gh auth status >/dev/null 2>&1; then
-  echo "pj-update-skills: gh is not authenticated." >&2
+  echo "pj --update-skill: gh is not authenticated." >&2
   echo "Run 'gh auth status' for details, authenticate, then retry." >&2
   exit 1
 fi
 
 if [ ! -d "$workspace" ]; then
-  echo "pj-update-skills: workspace does not exist: $workspace" >&2
+  echo "pj --update-skill: workspace does not exist: $workspace" >&2
   exit 1
 fi
 
@@ -258,7 +258,7 @@ for entry in "$workspace"/*; do
 done
 
 if [ "$found" -eq 0 ]; then
-  echo "pj-update-skills: no managed repositories found under $workspace" >&2
+  echo "pj --update-skill: no managed repositories found under $workspace" >&2
   exit 1
 fi
 

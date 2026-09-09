@@ -4,6 +4,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 launcher_source="$script_dir/pj"
 skill_update_source="$script_dir/update-managed-skills.sh"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 skill_update_logic_target=""
 config_dir="$config_home/pj"
 default_backend_file="$config_dir/default-backend"
@@ -86,11 +87,12 @@ launcher_target="$launcher_dir/pj"
 antigravity_target="$launcher_dir/pja"
 copilot_target="$launcher_dir/pjcp"
 codex_target="$launcher_dir/pjcd"
-skill_update_logic_target="$launcher_dir/update-managed-skills.sh"
+skill_data_dir="$data_home/pj"
+skill_update_logic_target="$skill_data_dir/update-managed-skills.sh"
 skill_update_target="$launcher_dir/pj-update-skills"
 legacy_copilot_target="$launcher_dir/pjc"
 
-mkdir -p "$launcher_dir" "$config_dir" "$workspace" || exit 1
+mkdir -p "$launcher_dir" "$config_dir" "$skill_data_dir" "$workspace" || exit 1
 
 managed_aliases_point_to() {
   target="$1"

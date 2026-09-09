@@ -252,8 +252,12 @@ if [ "${1:-}" = "--update-skill" ]; then
     exit 2
   fi
 
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
-  updater="$script_dir/update-managed-skills.sh"
+  data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  updater="$data_home/pj/update-managed-skills.sh"
+  if [ ! -f "$updater" ]; then
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+    updater="$script_dir/update-managed-skills.sh"
+  fi
   if [ ! -f "$updater" ]; then
     echo "pj: could not find updater script at $updater" >&2
     exit 1

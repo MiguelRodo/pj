@@ -50,6 +50,7 @@ HOME="$tmp/home" XDG_CONFIG_HOME="$test_config_home" PATH="$test_bin_dir:$tmp/bi
 [ -L "$test_bin_dir/pjcp" ] || exit 1
 [ -L "$test_bin_dir/pjcd" ] || exit 1
 [ -x "$test_bin_dir/pj-update-skills" ] || exit 1
+[ ! -e "$test_bin_dir/update-managed-skills.sh" ] || exit 1
 [ ! -e "$test_bin_dir/pjc" ] || exit 1
 [ "$(cat "$test_config_home/pj/install-bin-dir")" = "$test_bin_dir" ] || exit 1
 [ "$(cat "$test_config_home/pj/default-backend")" = "codex" ] || exit 1
@@ -80,6 +81,68 @@ case "$missing_projects_output" in
     ;;
 esac
 [ -x "$missing_projects_home/.local/bin/pj" ] || exit 1
+
+compat_repo="$tmp/home/planning/compat-shim-repo"
+mkdir -p "$compat_repo/.agents/skills/github-projects" || exit 1
+cat > "$compat_repo/.agents/skills/github-projects/SKILL.md" <<'EOF'
+---
+description: Administer GitHub issues and Projects from short outcome requests.
+metadata:
+    github-path: skills/github-projects
+    github-ref: refs/heads/main
+    github-repo: https://github.com/MiguelRodo/github-projects-skill
+    github-tree-sha: 4a0ba7bbb344ceca8ac5ef7336ccae5fb5a82242
+name: github-projects
+---
+# GitHub Project administration
+EOF
+
+git init -b main "$compat_repo" >/dev/null 2>&1 || exit 1
+git -C "$compat_repo" config user.name 'Test User'
+git -C "$compat_repo" config user.email 'test@example.invalid'
+printf 'baseline\n' > "$compat_repo/local.txt"
+git -C "$compat_repo" add . || exit 1
+git -C "$compat_repo" commit -m 'Compat shim repo' >/dev/null || exit 1
+
+compat_bin="$tmp/compat-bin"
+mkdir -p "$compat_bin" || exit 1
+cat > "$compat_bin/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = 'auth' ] && [ "$2" = 'status' ]; then
+  exit 0
+fi
+if [ "$1" = 'skill' ] && [ "$2" = 'update' ] && [ "$3" = 'github-projects' ] && [ "$4" = '--all' ]; then
+  mkdir -p .agents/skills/github-projects
+  cat > .agents/skills/github-projects/SKILL.md <<'SKILL_EOF'
+---
+description: Administer GitHub issues and Projects from short outcome requests.
+metadata:
+    github-path: skills/github-projects
+    github-ref: refs/heads/main
+    github-repo: https://github.com/MiguelRodo/github-projects-skill
+    github-tree-sha: 4a0ba7bbb344ceca8ac5ef7336ccae5fb5a82242
+name: github-projects
+---
+# GitHub Project administration
+SKILL_EOF
+  exit 0
+fi
+printf 'unexpected gh invocation:' >&2
+printf ' <%s>' "$@" >&2
+printf '\n' >&2
+exit 2
+EOF
+chmod +x "$compat_bin/gh" || exit 1
+
+if ! output=$(HOME="$tmp/home" \
+  XDG_CONFIG_HOME="$test_config_home" \
+  PATH="$compat_bin:$test_bin_dir:$tmp/bin:$PATH" \
+  PJ_WORKSPACE="$tmp/home/planning" \
+  "$test_bin_dir/pj-update-skills" 2>&1); then
+  printf 'Expected the installed pj-update-skills shim to delegate successfully.\nActual output:\n%s\n' "$output" >&2
+  exit 1
+fi
+grep -Fq 'name: github-projects' "$compat_repo/.agents/skills/github-projects/SKILL.md" || exit 1
 
 run_named() {
   name="$1"
