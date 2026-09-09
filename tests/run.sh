@@ -455,6 +455,10 @@ EOF
 cp "$operator_dir/pj" "$exist_bin/pj"
 cp "$operator_dir/update-managed-skills.sh" "$exist_bin/pj-update-skills"
 chmod +x "$exist_bin/pj" "$exist_bin/pj-update-skills"
+# Keep an unrelated updater script in the previous bin directory; migration
+# should not remove it.
+printf '#!/usr/bin/env bash\nprintf unrelated\n' > "$exist_bin/update-managed-skills.sh"
+chmod +x "$exist_bin/update-managed-skills.sh"
 ln -sfn "$exist_bin/pj" "$exist_bin/pja"
 ln -sfn "$exist_bin/pj" "$exist_bin/pjcp"
 ln -sfn "$exist_bin/pj" "$exist_bin/pjcd"
@@ -471,6 +475,7 @@ grep -Fq 'User Personal Custom Home Instructions' "$exist_home/AGENTS.md" || exi
 grep -Fq 'Footer user custom text that must be preserved.' "$exist_home/AGENTS.md" || exit 1
 grep -Fq 'Planning Workspace Custom Header' "$exist_home/planning/AGENTS.md" || exit 1
 grep -Fq 'Planning Workspace Custom Footer.' "$exist_home/planning/AGENTS.md" || exit 1
+[ -x "$exist_bin/update-managed-skills.sh" ] || exit 1
 
 # Verify new managed block is present and not duplicated
 [ "$(grep -c '<!-- pj-managed-projects:start -->' "$exist_home/AGENTS.md")" -eq 1 ] || exit 1
@@ -482,5 +487,6 @@ HOME="$exist_home" XDG_CONFIG_HOME="$exist_home/.config" PATH="$exist_bin:$tmp/b
 [ "$(grep -c '<!-- pj-managed-projects:start -->' "$exist_home/planning/AGENTS.md")" -eq 1 ] || exit 1
 [ "$(cat "$exist_config/default-backend")" = "antigravity" ] || exit 1
 [ "$(cat "$exist_config/models/codex")" = "custom-codex-model" ] || exit 1
+[ -x "$exist_bin/update-managed-skills.sh" ] || exit 1
 
 printf 'pj tests passed\n'

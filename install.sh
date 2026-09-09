@@ -113,7 +113,6 @@ remove_previous_managed_install() {
   previous_pja="$previous_dir/pja"
   previous_pjcp="$previous_dir/pjcp"
   previous_pjcd="$previous_dir/pjcd"
-  previous_skill_logic="$previous_dir/update-managed-skills.sh"
   previous_skill_update="$previous_dir/pj-update-skills"
   previous_pjc="$previous_dir/pjc"
 
@@ -124,7 +123,6 @@ remove_previous_managed_install() {
     if [ -L "$previous_pjcp" ] && [ "$(readlink "$previous_pjcp")" = "$previous_target" ]; then
       rm -f "$previous_pjcp" || exit 1
     fi
-    rm -f "$previous_skill_logic" || exit 1
     rm -f "$previous_skill_update" || exit 1
     if [ -L "$previous_pjc" ] && [ "$(readlink "$previous_pjc")" = "$previous_target" ]; then
       rm -f "$previous_pjc" || exit 1
