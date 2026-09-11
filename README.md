@@ -148,16 +148,16 @@ pj --update-skill
 
 A legacy `pj-update-skills` shim remains for older shell setups, but the maintained interface is `pj --update-skill`. Run it when you want to refresh `github-projects` across the managed repositories under `${PJ_WORKSPACE:-~/planning}`. The updater:
 
-1. temporarily stashes existing local work in each repository;
-2. fetches upstream changes and synchronises the tracked branch, using an explicit non-fast-forward merge only in ordinary managed repositories;
+1. resolves each repository's real default branch - the hosting provider's answer, then the remote HEAD recorded by the clone, then `main`/`master` - instead of treating whichever branch happens to be checked out as the target;
+2. fetches the remote and refreshes the skill on a temporary, isolated worktree of that default branch, so the operator's checked-out branch, index and dirty working state are never touched;
 3. reconciles the installed `github-projects` copy with canonical `main`, reinstalling it with `gh skill install ... --pin main` when it is missing, still sourced from `MiguelRodo/projects`, pinned to an older ref such as `refs/tags/v0.3.0`, or carrying the tree SHA of an older canonical `main`;
 4. commits only the resulting skill refresh as `Update github-projects skill`;
-5. pushes the resulting branch in ordinary managed repositories; and
-6. restores the local work it temporarily stashed.
+5. pushes the commit directly to the default branch when repository rules allow it, fast-forwarding an operator checkout that already sits cleanly on that branch; and
+6. when repository rules reject the direct push, preserves the same commit on the `pj/update-github-projects-skill` branch, pushes it and opens a pull request targeting the default branch, reusing an existing open skill-update pull request on reruns instead of opening a duplicate or leaving the local default branch ahead.
 
 The installed copy's own metadata decides whether it is current. `gh skill update github-projects --all` is not treated as the source of truth: it reports a tag-pinned copy as "All skills are up to date", and an unpinned `gh skill install` resolves the latest tagged release before the default branch, so the updater pins its reinstall to `main` and compares the recorded tree SHA with the canonical `main` checkout it just synced.
 
-The canonical `github-projects-skill` repository is special-cased: it is not asked to install its own skill, and it is never merged or pushed on its protected `main`. When the remote has simply moved ahead it is fast-forwarded; when its history has diverged from the remote it is left untouched and reported as a failure instead of manufacturing a merge commit. A repository that cannot merge, update, push or restore its stash is reported as a failure rather than silently treated as successful.
+The canonical `github-projects-skill` repository is special-cased: it is not asked to install its own skill, and it is never merged or pushed on its protected `main`. When the remote has simply moved ahead it is fast-forwarded; when its history has diverged from the remote it is left untouched and reported as a failure instead of manufacturing a merge commit. A repository that cannot resolve its default branch, merge, update, push or restore its stash is reported as a failure rather than silently treated as successful.
 
 Agents launched under the home or planning `AGENTS.md` guidance are told to use `pj --update-skill` when the operator explicitly asks them to update the shared skill across local repositories, instead of building another one-off shell loop.
 
