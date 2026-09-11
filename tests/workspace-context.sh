@@ -96,7 +96,7 @@ grep -Fq '# My own planning notes' "$workspace/AGENTS.md" || exit 1
 grep -Fq 'Keep this user-authored line intact.' "$workspace/AGENTS.md" || exit 1
 grep -Fq '<!-- pj-managed-projects:start -->' "$workspace/AGENTS.md" || exit 1
 grep -Fq 'Natural-language' "$workspace/AGENTS.md" || exit 1
-grep -Fq 'process the implementation issues for X' "$workspace/AGENTS.md" || exit 1
+grep -Fq 'process the queued administration handoffs for X' "$workspace/AGENTS.md" || exit 1
 grep -Fq 'references/local-implementation-queue.md' "$workspace/AGENTS.md" || exit 1
 grep -Fq 'pj --update-skill' "$workspace/AGENTS.md" || exit 1
 [ "$(stat -c '%a' "$workspace/AGENTS.md")" = 600 ] || exit 1
