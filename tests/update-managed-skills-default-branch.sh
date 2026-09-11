@@ -233,6 +233,22 @@ assert_skill_only_commit() {
   done < <(git --git-dir="$bare" show --pretty=format: --name-only "$ref")
 }
 
+# Every path changed between two refs must live under .agents/skills.
+assert_skill_only_diff() {
+  local bare="$1"
+  local base="$2"
+  local ref="$3"
+  local path
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      .agents/skills/*) ;;
+      *) fail "commit $ref changed non-skill path against $base: $path" ;;
+    esac
+  done < <(git --git-dir="$bare" diff --no-renames --name-only "$base" "$ref")
+}
+
 refresh_canonical_fixture() {
   git init --bare "$canonical_remote" >/dev/null 2>&1 || exit 1
   git init -b main "$canonical_seed" >/dev/null 2>&1 || exit 1
@@ -557,5 +573,92 @@ esac
 git --git-dir="$remote4" show refs/heads/pj/update-github-projects-skill:.agents/skills/github-projects/SKILL.md \
   | grep -Fq 'canonical main queue semantics' || \
   fail 'Scenario 4: dedicated branch does not carry canonical main content'
+
+# ---------------------------------------------------------------------------
+# Scenario 5: an open skill-update pull request whose .agents/skills tree is
+# correct but which gained an unrelated change must not be reused unchanged. The
+# updater rewrites the dedicated branch with the freshly generated skill-only
+# commit so the PR never stops being a skill-only refresh.
+# ---------------------------------------------------------------------------
+ws5="$tmp/ws5/planning"
+mkdir -p "$ws5" || exit 1
+make_repo contaminated_demo protect-main
+clone_repo contaminated_demo "$ws5"
+repo5="$ws5/contaminated_demo"
+remote5="$tmp/contaminated_demo.git"
+branch5="refs/heads/pj/update-github-projects-skill"
+main_sha5="$(git --git-dir="$remote5" rev-parse main)" || exit 1
+
+HOME="$tmp/home-5" \
+  PJ_WORKSPACE="$ws5" \
+  GH_TEST_PR_STATE="$tmp/prs-5.txt" \
+  GH_SKILL_TEST_CANONICAL_DIR="$canonical_checkout" \
+  PATH="$fake_bin:/usr/bin:/bin" \
+  bash "$updater" >/dev/null 2>&1 || fail 'Scenario 5: initial pull-request handoff failed'
+
+clean_sha="$(git --git-dir="$remote5" rev-parse "$branch5")" || \
+  fail 'Scenario 5: initial skill-update branch was not pushed'
+clean_skill_tree="$(git --git-dir="$remote5" rev-parse "$clean_sha:.agents/skills")" || \
+  fail 'Scenario 5: initial skill-update branch has no skill tree'
+
+# Contaminate the pull request branch with an unrelated change on top of the
+# skill commit, exactly as an accidental edit or bad merge would.
+contamination="$tmp/contaminated-branch"
+git clone --quiet --branch pj/update-github-projects-skill --single-branch \
+  "$remote5" "$contamination" >/dev/null 2>&1 || fail 'Scenario 5: could not clone the update branch'
+git_identity "$contamination"
+printf 'contaminated baseline\n' > "$contamination/local.txt"
+printf 'unrelated addition\n' > "$contamination/scratch-notes.txt"
+git -C "$contamination" add local.txt scratch-notes.txt || exit 1
+git -C "$contamination" commit -m 'Accidental unrelated change' >/dev/null || exit 1
+git -C "$contamination" push origin HEAD:refs/heads/pj/update-github-projects-skill >/dev/null 2>&1 || \
+  fail 'Scenario 5: could not contaminate the update branch'
+
+# Precondition: only the non-skill diff can stop reuse here.
+[ "$(git --git-dir="$remote5" rev-parse "$branch5:.agents/skills")" = "$clean_skill_tree" ] || \
+  fail 'Scenario 5: contamination changed the skill tree'
+[ "$(git --git-dir="$remote5" rev-parse "$branch5")" != "$clean_sha" ] || \
+  fail 'Scenario 5: contamination did not move the update branch'
+
+output5="$(HOME="$tmp/home-5" \
+  PJ_WORKSPACE="$ws5" \
+  GH_TEST_PR_STATE="$tmp/prs-5.txt" \
+  GH_SKILL_TEST_CANONICAL_DIR="$canonical_checkout" \
+  PATH="$fake_bin:/usr/bin:/bin" \
+  bash "$updater" 2>&1)" || {
+  printf 'Scenario 5: updater failed unexpectedly:\n%s\n' "$output5" >&2
+  exit 1
+}
+
+case "$output5" in
+  *'Reusing existing skill-update pull request'*)
+    fail 'Scenario 5: contaminated pull request branch was reused unchanged'
+    ;;
+esac
+case "$output5" in
+  *'Updated existing skill-update pull request #1: https://example.invalid/pull/1'*) ;;
+  *) fail "Scenario 5: contaminated branch was not rewritten. Output:\n$output5" ;;
+esac
+[ "$(wc -l < "$tmp/prs-5.txt")" = '1' ] || \
+  fail 'Scenario 5: a duplicate pull request was opened'
+
+# The rewritten branch is a clean skill-only commit on the default-branch tip.
+assert_skill_only_diff "$remote5" "$main_sha5" "$branch5"
+[ "$(git --git-dir="$remote5" rev-parse "$branch5^")" = "$main_sha5" ] || \
+  fail 'Scenario 5: rewritten branch is not based on the default branch tip'
+[ "$(git --git-dir="$remote5" rev-parse "$branch5:.agents/skills")" = "$clean_skill_tree" ] || \
+  fail 'Scenario 5: rewritten branch lost the canonical skill content'
+! git --git-dir="$remote5" cat-file -e "$branch5:scratch-notes.txt" 2>/dev/null || \
+  fail 'Scenario 5: rewritten branch still carries the unrelated addition'
+git --git-dir="$remote5" show "$branch5:local.txt" | grep -Fxq 'contaminated_demo baseline' || \
+  fail 'Scenario 5: rewritten branch still carries the unrelated modification'
+
+# The operator checkout and the protected default branch were untouched.
+[ "$(git --git-dir="$remote5" rev-parse main)" = "$main_sha5" ] || \
+  fail 'Scenario 5: protected default branch moved'
+[ "$(git -C "$repo5" rev-parse HEAD)" = "$main_sha5" ] || \
+  fail 'Scenario 5: operator checkout moved'
+[ -z "$(git -C "$repo5" status --porcelain)" ] || \
+  fail 'Scenario 5: operator checkout became dirty'
 
 printf 'default-branch skill updater tests passed\n'

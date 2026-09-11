@@ -301,13 +301,15 @@ refreshes the installed `github-projects` skill on an isolated worktree of that
 branch, and commits only the skill refresh, reinstalling tag-pinned copies
 instead of trusting the update command's success message. The operator's
 checked-out branch and dirty working state are never touched; a checkout that
-already sits cleanly on the default branch is merely fast-forwarded afterwards.
+already sits on the default branch is fast-forwarded afterwards whenever git can
+do so without disturbing local work.
 An unprotected default branch receives the skill-only commit directly. When
 repository rules reject that direct push, the commit is preserved on a dedicated
 `pj/update-github-projects-skill` branch, pushed, and handed over through a pull
 request targeting the default branch; a rerun reuses the existing open
-skill-update pull request instead of opening another one, and protection is
-never bypassed. It never merges or pushes the canonical `github-projects-skill`
+skill-update pull request instead of opening another one, rewriting that branch
+if it ever gained changes outside `.agents/skills`, and protection is never
+bypassed. It never merges or pushes the canonical `github-projects-skill`
 repository's protected `main`; that checkout is fast-forwarded when possible and
 otherwise reported as a failure. If a repository cannot resolve its default
 branch, update, push or open its pull request, report the exact repository and

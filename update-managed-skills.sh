@@ -144,8 +144,9 @@ remove_worktree() {
 
 # Best-effort sync of the operator's own checkout when it already sits on the
 # default branch. The fast-forward only happens when the local branch is a pure
-# ancestor of the freshly pushed commit; local commits, local edits and every
-# other branch are left untouched.
+# ancestor of the freshly pushed commit and git can apply it without disturbing
+# local work; local commits, conflicting local edits and every other branch are
+# left untouched.
 sync_local_default_branch() {
   local repo_path="$1"
   local default_branch="$2"
@@ -163,7 +164,7 @@ sync_local_default_branch() {
   if git -C "$repo_path" merge --ff-only "$new_sha" >/dev/null 2>&1; then
     echo "Fast-forwarded the local $default_branch checkout to include the skill update."
   else
-    echo "WARNING: could not fast-forward the local $default_branch checkout; run 'git pull' when convenient." >&2
+    echo "WARNING: could not fast-forward the local $default_branch checkout without disturbing local work; run 'git pull' when convenient." >&2
   fi
 }
 
@@ -185,21 +186,38 @@ push_skill_update_branch() {
   return 1
 }
 
-# True when the open pull request's branch already carries exactly the installed
-# .agents/skills tree this run would push, so rerunning is a no-op instead of
-# commit churn on the existing pull request.
+# True when the open pull request's branch can be reused as is: it must carry
+# exactly the installed .agents/skills tree this run would push *and* its diff
+# against the point where it forked from the default branch must touch nothing
+# outside .agents/skills. A branch that gained an unrelated change is therefore
+# never reused unchanged; the caller rewrites it with the fresh, clean commit.
 update_branch_is_reusable() {
   local worktree_dir="$1"
+  local default_branch="$2"
+  local default_ref="refs/remotes/origin/$default_branch"
   local remote_ref="refs/remotes/origin/$skill_update_branch"
-  local desired_sha existing_sha
+  local desired_sha existing_sha base_sha path
 
   git -C "$worktree_dir" fetch --quiet --force origin \
     "+refs/heads/$skill_update_branch:$remote_ref" 2>/dev/null || return 1
 
   desired_sha="$(git -C "$worktree_dir" rev-parse --verify --quiet 'HEAD:.agents/skills' 2>/dev/null)" || return 1
   existing_sha="$(git -C "$worktree_dir" rev-parse --verify --quiet "$remote_ref:.agents/skills" 2>/dev/null)" || return 1
+  [ -n "$desired_sha" ] && [ "$desired_sha" = "$existing_sha" ] || return 1
 
-  [ -n "$desired_sha" ] && [ "$desired_sha" = "$existing_sha" ]
+  # Compare against the fork point, not against the current default-branch tip:
+  # unrelated downstream commits on the default branch are not the pull
+  # request's business.
+  base_sha="$(git -C "$worktree_dir" merge-base "$remote_ref" "$default_ref" 2>/dev/null)" || return 1
+  [ -n "$base_sha" ] || return 1
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      .agents/skills/*) ;;
+      *) return 1 ;;
+    esac
+  done < <(git -C "$worktree_dir" diff --no-renames --name-only "$base_sha" "$remote_ref")
 }
 
 restore_stash() {
@@ -408,13 +426,14 @@ update_managed_repo() {
       return 1
     fi
 
-    if update_branch_is_reusable "$worktree_dir"; then
+    if update_branch_is_reusable "$worktree_dir" "$default_branch"; then
       remove_worktree "$repo_path" "$worktree_dir"
       echo "Reusing existing skill-update pull request #$pr_number: $pr_url"
       reused_pr_count=$((reused_pr_count + 1))
       return 4
     fi
 
+    echo "Existing skill-update branch is not a clean skill-only refresh; replacing it with the freshly generated commit."
     if ! push_skill_update_branch "$worktree_dir"; then
       echo "ERROR: could not update the existing skill-update branch in $repo_name." >&2
       remove_worktree "$repo_path" "$worktree_dir"
