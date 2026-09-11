@@ -22,3 +22,5 @@ jobs:
         run: bash tests/workspace-context.sh
       - name: Run managed skill updater tests
         run: bash tests/update-managed-skills.sh
+      - name: Run canonical managed skill updater tests
+        run: bash tests/update-managed-skills-canonical.sh
