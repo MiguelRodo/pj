@@ -406,13 +406,19 @@ update_managed_repo() {
   echo "Direct push to origin/$default_branch was rejected by repository rules; handing the skill-only commit to a pull request instead."
 
   pr_info="$(cd "$repo_path" && gh pr list --head "$skill_update_branch" --base "$default_branch" \
-              --state open --json number,url --jq '.[0] | "\(.number) \(.url)"' 2>/dev/null)"
+              --state open --json number,url --jq '.[0] // empty | "\(.number) \(.url)"' 2>/dev/null)"
   pr_status=$?
 
   if [ "$pr_status" -ne 0 ]; then
     echo "ERROR: could not check for an existing skill-update pull request in $repo_name." >&2
     remove_worktree "$repo_path" "$worktree_dir"
     return 1
+  fi
+
+  # Some gh/gojq combinations render an empty result as the literal "null null"
+  # instead of printing nothing; that still means "no open skill-update PR".
+  if [ "$pr_info" = 'null null' ]; then
+    pr_info=""
   fi
 
   if [ -n "$pr_info" ]; then
