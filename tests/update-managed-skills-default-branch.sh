@@ -99,7 +99,17 @@ if [ "$1" = 'pr' ] && [ "$2" = 'list' ]; then
     esac
   done
   if [ -n "${GH_TEST_PR_STATE:-}" ] && [ -f "$GH_TEST_PR_STATE" ]; then
-    awk -v h="$head" -v b="$base" '$2 == h && $3 == b { print $1 " " $4; exit }' "$GH_TEST_PR_STATE"
+    match="$(awk -v h="$head" -v b="$base" '$2 == h && $3 == b { print $1 " " $4; exit }' "$GH_TEST_PR_STATE")"
+    if [ -n "$match" ]; then
+      printf '%s\n' "$match"
+      exit 0
+    fi
+  fi
+  # Real gh printed the literal "null null" for an empty result before the
+  # updater's jq expression was made null-safe; scenarios can request that
+  # rendering to keep the tolerant parsing honest.
+  if [ -n "${GH_TEST_PR_LIST_NULL_EMPTY:-}" ]; then
+    printf 'null null\n'
   fi
   exit 0
 fi
@@ -544,9 +554,13 @@ feature_sha="$(git -C "$repo4" rev-parse HEAD)" || exit 1
 local_main_before="$(git -C "$repo4" rev-parse refs/heads/main)" || exit 1
 status_before="$(git -C "$repo4" status --porcelain)" || exit 1
 
+# GH_TEST_PR_LIST_NULL_EMPTY reproduces the real gh behaviour seen in the field:
+# an empty `gh pr list --jq` result was rendered as the literal "null null",
+# which must still be treated as "no existing pull request".
 output4="$(HOME="$tmp/home-4" \
   PJ_WORKSPACE="$ws4" \
   GH_TEST_PR_STATE="$tmp/prs-4.txt" \
+  GH_TEST_PR_LIST_NULL_EMPTY=1 \
   GH_SKILL_TEST_CANONICAL_DIR="$canonical_checkout" \
   PATH="$fake_bin:/usr/bin:/bin" \
   bash "$updater" 2>&1)" || {
@@ -557,6 +571,11 @@ output4="$(HOME="$tmp/home-4" \
 case "$output4" in
   *'Opened skill-update pull request: https://example.invalid/pull/1'*) ;;
   *) fail "Scenario 4: pull request handoff was not reported. Output:\n$output4" ;;
+esac
+case "$output4" in
+  *'could not parse the existing skill-update pull request'*)
+    fail 'Scenario 4: an empty null-rendered PR listing crashed the handoff'
+    ;;
 esac
 [ "$(git -C "$repo4" branch --show-current)" = 'feature/github-projects-adoption' ] || \
   fail 'Scenario 4: checked-out branch changed'
