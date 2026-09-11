@@ -73,7 +73,8 @@ fi
 if [ "$1" = 'skill' ] && [ "$2" = 'install' ] && \
    [ "$3" = 'MiguelRodo/github-projects-skill' ] && [ "$4" = 'github-projects' ] && \
    [ "$5" = '--agent' ] && [ "$6" = 'universal' ] && \
-   [ "$7" = '--scope' ] && [ "$8" = 'project' ] && [ "$9" = '--force' ]; then
+   [ "$7" = '--scope' ] && [ "$8" = 'project' ] && [ "$9" = '--force' ] && \
+   [ "${10}" = '--pin' ] && [ "${11}" = 'main' ]; then
   if [ -n "$FAIL_SKILL_INSTALL" ]; then
     mkdir -p .agents/skills/github-projects
     printf 'corrupted partial state\n' > .agents/skills/github-projects/PARTIAL.tmp
