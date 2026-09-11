@@ -5,6 +5,10 @@ skill_name="github-projects"
 legacy_skill_name="github-project-admin"
 canonical_skill_dir="$workspace/github-projects-skill"
 canonical_skill_repo="MiguelRodo/github-projects-skill"
+canonical_skill_repo_url="https://github.com/$canonical_skill_repo"
+canonical_skill_ref="refs/heads/main"
+canonical_skill_pin="main"
+canonical_skill_tree_sha=""
 
 is_canonical_skill_repo() {
   local path="$1"
@@ -12,6 +16,40 @@ is_canonical_skill_repo() {
   [ -f "$path/skills/$skill_name/SKILL.md" ] || \
   [ -f "$path/skills/$legacy_skill_name/SKILL.md" ] || \
   git -C "$path" remote get-url origin 2>/dev/null | grep -Eq '(github-projects-skill|MiguelRodo/projects-skill)'
+}
+
+# `gh skill install` resolves the latest tagged release before the default
+# branch, so a plain install records refs/tags/v0.3.0 and `gh skill update`
+# reports "All skills are up to date" while canonical main keeps moving. Record
+# the tree SHA of the canonical skill on main so installs can be checked against
+# the real current content instead of that success message.
+resolve_canonical_skill_tree_sha() {
+  [ -d "$canonical_skill_dir/.git" ] || return 0
+  canonical_skill_tree_sha="$(
+    git -C "$canonical_skill_dir" rev-parse --verify --quiet \
+      "refs/remotes/origin/main:skills/$skill_name" 2>/dev/null || true
+  )"
+}
+
+# An installed copy is only current when it is sourced from the canonical
+# repository on main and, when the canonical checkout is available, matches the
+# current canonical main tree SHA. Tag-pinned installs such as refs/tags/v0.3.0
+# are therefore stale even though `gh skill update` calls them up to date.
+installed_skill_is_current() {
+  local repo_path="$1"
+  local skill_file="$repo_path/.agents/skills/$skill_name/SKILL.md"
+  local installed_sha
+
+  [ -f "$skill_file" ] || return 1
+  grep -Fq "github-repo: $canonical_skill_repo_url" "$skill_file" 2>/dev/null || return 1
+  grep -Fq "github-ref: $canonical_skill_ref" "$skill_file" 2>/dev/null || return 1
+
+  if [ -n "$canonical_skill_tree_sha" ]; then
+    installed_sha="$(sed -n 's/^[[:space:]]*github-tree-sha:[[:space:]]*//p' "$skill_file" | head -n1)"
+    [ "$installed_sha" = "$canonical_skill_tree_sha" ] || return 1
+  fi
+
+  return 0
 }
 
 if [ "$(basename "$0")" = "pj-update-skills" ] && command -v pj >/dev/null 2>&1; then
@@ -109,11 +147,20 @@ update_repo() {
     return 1
   fi
 
+  local is_canonical=0
+  if is_canonical_skill_repo "$repo_path"; then
+    is_canonical=1
+  fi
+
   echo "Fetching..."
   if ! git -C "$repo_path" fetch --prune; then
     echo "ERROR: fetch failed in $repo_name" >&2
     restore_stash "$repo_path" "$had_stash" || true
     return 1
+  fi
+
+  if [ "$is_canonical" -eq 1 ]; then
+    resolve_canonical_skill_tree_sha
   fi
 
   upstream="$(git -C "$repo_path" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
@@ -131,6 +178,28 @@ update_repo() {
   if [ -n "$upstream" ]; then
     if git -C "$repo_path" merge-base --is-ancestor "$upstream" HEAD; then
       echo "Already contains latest $upstream."
+      if [ "$is_canonical" -eq 1 ] && \
+         ! git -C "$repo_path" merge-base --is-ancestor HEAD "$upstream"; then
+        echo "WARNING: $repo_name has local commits not on $upstream; leaving them for a pull request." >&2
+      fi
+    elif [ "$is_canonical" -eq 1 ]; then
+      # The canonical skill repository protects its main branch and requires pull
+      # requests, so never manufacture or push a merge commit there. Fast-forward
+      # when the remote simply moved ahead, and stop when the histories diverged.
+      if git -C "$repo_path" merge-base --is-ancestor HEAD "$upstream"; then
+        echo "Fast-forwarding $repo_name to $upstream..."
+        if ! git -C "$repo_path" merge --ff-only "$upstream"; then
+          echo "ERROR: fast-forward failed in $repo_name" >&2
+          restore_stash "$repo_path" "$had_stash" || true
+          return 1
+        fi
+      else
+        echo "ERROR: canonical skill repository $repo_name has diverged from $upstream." >&2
+        echo "Refusing to create or push a merge commit on its protected branch." >&2
+        echo "Synchronise $repo_name manually, for example through a pull request, then retry." >&2
+        restore_stash "$repo_path" "$had_stash" || true
+        return 1
+      fi
     else
       echo "Merging $upstream..."
       if ! git -C "$repo_path" merge --no-ff "$upstream" \
@@ -145,8 +214,8 @@ update_repo() {
     echo "WARNING: no upstream configured for $repo_name; remote sync skipped." >&2
   fi
 
-  if is_canonical_skill_repo "$repo_path"; then
-    echo "Canonical skill repository: skipping installed-skill refresh."
+  if [ "$is_canonical" -eq 1 ]; then
+    echo "Canonical skill repository: skipping installed-skill refresh and push."
   else
     local legacy_installed=0
     if [ -d "$repo_path/.agents/skills/$legacy_skill_name" ] || \
@@ -155,12 +224,16 @@ update_repo() {
     fi
 
     local needs_migration=0
+    local migration_reason=""
     if [ "$legacy_installed" -eq 1 ]; then
       needs_migration=1
+      migration_reason="$legacy_skill_name is still installed"
     elif [ ! -f "$repo_path/.agents/skills/$skill_name/SKILL.md" ]; then
       needs_migration=1
-    elif grep -Fq 'github-repo: https://github.com/MiguelRodo/projects' "$repo_path/.agents/skills/$skill_name/SKILL.md" 2>/dev/null; then
+      migration_reason="$skill_name is not installed"
+    elif ! installed_skill_is_current "$repo_path"; then
       needs_migration=1
+      migration_reason="$skill_name does not match $canonical_skill_repo main"
     fi
 
     local skills_backup
@@ -170,23 +243,22 @@ update_repo() {
     fi
 
     if [ "$needs_migration" -eq 1 ]; then
-      echo "Migrating skill to $skill_name from $canonical_skill_repo..."
-      if ! (cd "$repo_path" && gh skill install "$canonical_skill_repo" "$skill_name" --agent universal --scope project --force) || \
-         [ ! -f "$repo_path/.agents/skills/$skill_name/SKILL.md" ]; then
-        echo "ERROR: skill installation/migration failed in $repo_name" >&2
+      # Pin to main explicitly: an unpinned install resolves the latest tagged
+      # release and would put the stale copy straight back.
+      echo "Installing $skill_name from $canonical_skill_repo@$canonical_skill_pin ($migration_reason)..."
+      if ! (cd "$repo_path" && gh skill install "$canonical_skill_repo" "$skill_name" \
+              --agent universal --scope project --force --pin "$canonical_skill_pin") || \
+         ! installed_skill_is_current "$repo_path"; then
+        echo "ERROR: skill installation/migration failed in $repo_name; the installed skill is still not current." >&2
         restore_skills "$repo_path" "$skills_backup"
         restore_stash "$repo_path" "$had_stash" || true
         return 1
       fi
     else
-      echo "Updating $skill_name..."
-      if ! (cd "$repo_path" && gh skill update "$skill_name" --all) || \
-         [ ! -f "$repo_path/.agents/skills/$skill_name/SKILL.md" ]; then
-        echo "ERROR: skill update failed in $repo_name" >&2
-        restore_skills "$repo_path" "$skills_backup"
-        restore_stash "$repo_path" "$had_stash" || true
-        return 1
-      fi
+      # `gh skill update` is deliberately not trusted here: it reports tagged
+      # copies as up to date and would resolve the latest tag for the rest.
+      # Reconciliation happens by comparing against canonical main above.
+      echo "$skill_name already matches $canonical_skill_repo main."
     fi
 
     if [ -e "$repo_path/.agents/skills/$legacy_skill_name" ]; then
@@ -212,7 +284,9 @@ update_repo() {
     fi
   fi
 
-  if git -C "$repo_path" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+  if [ "$is_canonical" -eq 1 ]; then
+    echo "Canonical skill repository: push skipped; protected main is updated through pull requests."
+  elif git -C "$repo_path" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
     echo "Pushing $repo_name..."
     if ! git -C "$repo_path" push; then
       echo "ERROR: push failed in $repo_name" >&2
@@ -244,9 +318,11 @@ update_repo() {
 }
 
 found=0
-for entry in "$workspace"/*; do
-  [ -d "$entry/.git" ] || continue
 
+process_workspace_entry() {
+  local entry="$1"
+
+  [ -d "$entry/.git" ] || return 0
   if is_canonical_skill_repo "$entry" || \
      [ -f "$entry/.agents/skills/$skill_name/SKILL.md" ] || \
      [ -f "$entry/.agents/skills/$legacy_skill_name/SKILL.md" ]; then
@@ -255,6 +331,17 @@ for entry in "$workspace"/*; do
       failed_count=$((failed_count + 1))
     fi
   fi
+}
+
+# Sync the canonical skill checkout first: the main tree SHA it resolves is the
+# reference every installed copy is compared against.
+if [ -d "$canonical_skill_dir" ]; then
+  process_workspace_entry "$canonical_skill_dir"
+fi
+
+for entry in "$workspace"/*; do
+  [ "$entry" = "$canonical_skill_dir" ] && continue
+  process_workspace_entry "$entry"
 done
 
 if [ "$found" -eq 0 ]; then

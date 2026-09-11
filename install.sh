@@ -295,13 +295,16 @@ operator explicitly asks to update or refresh the installed
 `github-projects` skill across the managed repositories in that workspace,
 run `pj --update-skill` rather than constructing an ad hoc repository loop.
 
-The `pj --update-skill` path temporarily stashes pre-existing local work, fetches and
-merges upstream changes with an explicit merge commit when needed, updates the
-installed `github-projects` skill non-interactively, commits only the skill
-refresh, pushes the branch and restores the operator's previous local work. It
-skips the installed-skill refresh in the canonical `github-projects-skill` source repository.
-If a repository fails to merge, update, push or restore its stash, report the
-exact repository and error rather than claiming the whole update succeeded.
+The `pj --update-skill` path temporarily stashes pre-existing local work, syncs
+each tracked branch up to its upstream, ensures the installed
+`github-projects` skill tracks canonical `main` (reinstalling tag-pinned copies
+instead of trusting the update command's success message), commits only the
+skill refresh, pushes ordinary managed repositories and restores the operator's
+previous local work. It never merges or pushes the canonical
+`github-projects-skill` repository's protected `main`; that checkout is
+fast-forwarded when possible and otherwise reported as a failure. If a
+repository fails to sync, update, push or restore its stash, report the exact
+repository and error rather than claiming the whole update succeeded.
 
 The legacy `pj-update-skills` launcher remains as a compatibility shim for older
 shell setup, but the canonical entry point is `pj --update-skill`.
