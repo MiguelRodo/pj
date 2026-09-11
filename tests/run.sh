@@ -196,21 +196,23 @@ assert_contains "$codex_options" '<Prompt - with dash>'
 implement_short="$(run_named pj -i)" || exit 1
 assert_contains "$implement_short" 'codex'
 assert_contains "$implement_short" '<exec>'
-assert_contains "$implement_short" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_short" '<Process the Chat administration queue across the managed repositories in this workspace.'
+assert_contains "$implement_short" 'NEVER edit repository files'
+assert_contains "$implement_short" 'requires a separate explicit non-queue invocation'
 assert_contains "$implement_short" 'references/local-implementation-queue.md'
 assert_contains "$implement_short" 'without asking for a routine preview'
 
 implement_issues="$(run_named pj --implement-issues)" || exit 1
-assert_contains "$implement_issues" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_issues" '<Process the Chat administration queue across the managed repositories in this workspace.'
 
 implement_chat="$(run_named pj --implement-chat)" || exit 1
-assert_contains "$implement_chat" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_chat" '<Process the Chat administration queue across the managed repositories in this workspace.'
 
 implement_copilot="$(run_named pj --backend copilot -i)" || exit 1
 assert_contains "$implement_copilot" 'copilot'
 assert_contains "$implement_copilot" '<mai-code-1.1-flash>'
 assert_contains "$implement_copilot" '<-p>'
-assert_contains "$implement_copilot" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_copilot" '<Process the Chat administration queue across the managed repositories in this workspace.'
 
 if run_named pj -i extra >/dev/null 2>&1; then
   echo 'pj -i unexpectedly accepted extra arguments' >&2
@@ -261,7 +263,7 @@ assert_contains "$agy_interactive" '<--continue>'
 
 implement_interactive="$(PJ_SESSION_MODE=interactive run_named pj --backend copilot -i)" || exit 1
 assert_contains "$implement_interactive" '<-i>'
-assert_contains "$implement_interactive" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_interactive" '<Process the Chat administration queue across the managed repositories in this workspace.'
 
 # The pj-level one-shot override wins even when the environment requests an
 # interactive session.
