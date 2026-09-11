@@ -113,7 +113,6 @@ remove_previous_managed_install() {
   previous_pja="$previous_dir/pja"
   previous_pjcp="$previous_dir/pjcp"
   previous_pjcd="$previous_dir/pjcd"
-  previous_skill_logic="$previous_dir/update-managed-skills.sh"
   previous_skill_update="$previous_dir/pj-update-skills"
   previous_pjc="$previous_dir/pjc"
 
@@ -124,7 +123,6 @@ remove_previous_managed_install() {
     if [ -L "$previous_pjcp" ] && [ "$(readlink "$previous_pjcp")" = "$previous_target" ]; then
       rm -f "$previous_pjcp" || exit 1
     fi
-    rm -f "$previous_skill_logic" || exit 1
     rm -f "$previous_skill_update" || exit 1
     if [ -L "$previous_pjc" ] && [ "$(readlink "$previous_pjc")" = "$previous_target" ]; then
       rm -f "$previous_pjc" || exit 1
@@ -427,9 +425,10 @@ update_managed_block \
 
 This directory is the shared local operator workspace used by `pj`. Natural-language
 requests to add, update, close or organise GitHub issues, change GitHub Project
-fields or membership, or process Chat implementation queue items are GitHub task
-and Project-administration requests unless the operator explicitly asks for
-repository code changes.
+fields or membership, or process Chat queue items are GitHub task and
+Project-administration requests. Queue mode is administrative-only and never
+authorises repository code or configuration changes; implementation requires a
+separate explicit non-queue request.
 
 For each such request:
 
@@ -439,8 +438,8 @@ For each such request:
 3. read `.projects/project.md` plus the one Project contract it resolves and use
    the shared `github-projects` skill named by the repository guidance;
 4. interpret ordinary phrases such as "add an issue to X", "set this to P3" or
-   "process the implementation issues for X" through those checked contracts
-   rather than inventing provider-specific task logic;
+   "process the queued administration handoffs for X" through those checked
+   contracts rather than inventing provider-specific task logic;
 5. preserve unrelated state, stop on consequential ambiguity, and independently
    read back every completed GitHub mutation before reporting success.
 

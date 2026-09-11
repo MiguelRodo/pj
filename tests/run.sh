@@ -196,21 +196,23 @@ assert_contains "$codex_options" '<Prompt - with dash>'
 implement_short="$(run_named pj -i)" || exit 1
 assert_contains "$implement_short" 'codex'
 assert_contains "$implement_short" '<exec>'
-assert_contains "$implement_short" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_short" '<Process the Chat administration queue across the managed repositories in this workspace.'
+assert_contains "$implement_short" 'NEVER edit repository files'
+assert_contains "$implement_short" 'requires a separate explicit non-queue invocation'
 assert_contains "$implement_short" 'references/local-implementation-queue.md'
 assert_contains "$implement_short" 'without asking for a routine preview'
 
 implement_issues="$(run_named pj --implement-issues)" || exit 1
-assert_contains "$implement_issues" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_issues" '<Process the Chat administration queue across the managed repositories in this workspace.'
 
 implement_chat="$(run_named pj --implement-chat)" || exit 1
-assert_contains "$implement_chat" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_chat" '<Process the Chat administration queue across the managed repositories in this workspace.'
 
 implement_copilot="$(run_named pj --backend copilot -i)" || exit 1
 assert_contains "$implement_copilot" 'copilot'
 assert_contains "$implement_copilot" '<mai-code-1.1-flash>'
 assert_contains "$implement_copilot" '<-p>'
-assert_contains "$implement_copilot" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_copilot" '<Process the Chat administration queue across the managed repositories in this workspace.'
 
 if run_named pj -i extra >/dev/null 2>&1; then
   echo 'pj -i unexpectedly accepted extra arguments' >&2
@@ -261,7 +263,7 @@ assert_contains "$agy_interactive" '<--continue>'
 
 implement_interactive="$(PJ_SESSION_MODE=interactive run_named pj --backend copilot -i)" || exit 1
 assert_contains "$implement_interactive" '<-i>'
-assert_contains "$implement_interactive" '<Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$implement_interactive" '<Process the Chat administration queue across the managed repositories in this workspace.'
 
 # The pj-level one-shot override wins even when the environment requests an
 # interactive session.
@@ -455,6 +457,10 @@ EOF
 cp "$operator_dir/pj" "$exist_bin/pj"
 cp "$operator_dir/update-managed-skills.sh" "$exist_bin/pj-update-skills"
 chmod +x "$exist_bin/pj" "$exist_bin/pj-update-skills"
+# Keep an unrelated updater script in the previous bin directory; migration
+# should not remove it.
+printf '#!/usr/bin/env bash\nprintf unrelated\n' > "$exist_bin/update-managed-skills.sh"
+chmod +x "$exist_bin/update-managed-skills.sh"
 ln -sfn "$exist_bin/pj" "$exist_bin/pja"
 ln -sfn "$exist_bin/pj" "$exist_bin/pjcp"
 ln -sfn "$exist_bin/pj" "$exist_bin/pjcd"
@@ -471,6 +477,7 @@ grep -Fq 'User Personal Custom Home Instructions' "$exist_home/AGENTS.md" || exi
 grep -Fq 'Footer user custom text that must be preserved.' "$exist_home/AGENTS.md" || exit 1
 grep -Fq 'Planning Workspace Custom Header' "$exist_home/planning/AGENTS.md" || exit 1
 grep -Fq 'Planning Workspace Custom Footer.' "$exist_home/planning/AGENTS.md" || exit 1
+[ -x "$exist_bin/update-managed-skills.sh" ] || exit 1
 
 # Verify new managed block is present and not duplicated
 [ "$(grep -c '<!-- pj-managed-projects:start -->' "$exist_home/AGENTS.md")" -eq 1 ] || exit 1
@@ -482,5 +489,6 @@ HOME="$exist_home" XDG_CONFIG_HOME="$exist_home/.config" PATH="$exist_bin:$tmp/b
 [ "$(grep -c '<!-- pj-managed-projects:start -->' "$exist_home/planning/AGENTS.md")" -eq 1 ] || exit 1
 [ "$(cat "$exist_config/default-backend")" = "antigravity" ] || exit 1
 [ "$(cat "$exist_config/models/codex")" = "custom-codex-model" ] || exit 1
+[ -x "$exist_bin/update-managed-skills.sh" ] || exit 1
 
 printf 'pj tests passed\n'
