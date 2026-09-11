@@ -71,7 +71,9 @@ queue_oneshot_short="$(PJ_BACKEND=copilot PJ_SESSION_MODE=interactive run_pj -i 
 assert_contains "$queue_oneshot_short" 'copilot'
 assert_contains "$queue_oneshot_short" '<-p>'
 assert_not_contains "$queue_oneshot_short" '<-i>'
-assert_contains "$queue_oneshot_short" 'Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$queue_oneshot_short" 'Process the Chat administration queue across the managed repositories in this workspace.'
+assert_contains "$queue_oneshot_short" 'NEVER edit repository files'
+assert_contains "$queue_oneshot_short" 'requires a separate explicit non-queue invocation'
 
 queue_oneshot_long="$(PJ_BACKEND=copilot PJ_SESSION_MODE=interactive run_pj -i --oneshot --repo projects)" || exit 1
 assert_contains "$queue_oneshot_long" '<-p>'
@@ -100,7 +102,7 @@ assert_contains "$equals_repo" "Restrict queue discovery to the repository selec
 
 # No selector preserves the cross-repository queue request.
 all_repos="$(PJ_BACKEND=codex run_pj --implement-issues)" || exit 1
-assert_contains "$all_repos" 'Process the Chat implementation queue across the managed repositories in this workspace.'
+assert_contains "$all_repos" 'Process the Chat administration queue across the managed repositories in this workspace.'
 assert_not_contains "$all_repos" 'Restrict queue discovery to the repository selector'
 
 # Queue mode remains narrow: ordinary text is not another pj parameter. Once
