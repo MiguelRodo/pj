@@ -159,14 +159,19 @@ Each handoff uses the configured label and a separate unedited
 `PJ implementation authority:` comment establishing the bounded administrative
 goal. Do not mark an implementation issue itself for queue execution.
 
-Run `pj -i`, or `pj -i --repo example/repository` to select one managed issue
-repository. Queue mode may perform and verify the authorised GitHub/Project
-administration only. It must never edit repository files, run implementation
-tests, create implementation branches or pull requests, or otherwise implement
-product/code work. Such work requires a separate explicit non-queue invocation.
+Install `pj` from the
+[pj operator guide](https://github.com/MiguelRodo/pj)
+and keep the managed checkouts in its workspace. Run `pj -i`, or
+`pj -i --repo example/repository` to select one managed issue repository. The local
+agent may perform and verify the authorised GitHub/Project administration only.
+Queue mode must never edit repository files, run implementation tests, create
+implementation branches or pull requests, or otherwise implement product/code
+work. Such work requires a separate explicit non-queue invocation.
 
 See the [queue reference](references/local-implementation-queue.md) for authority,
-discovery, readback and fallback rules.
+discovery, readback and fallback rules. The optional
+[`projects` CLI](https://github.com/MiguelRodo/github-projects-skill/blob/main/docs/cli.md)
+performs supported GitHub operations; `pj` launches the agent that directs them.
 
 ## Issue Type / Class
 
