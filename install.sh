@@ -425,9 +425,10 @@ update_managed_block \
 
 This directory is the shared local operator workspace used by `pj`. Natural-language
 requests to add, update, close or organise GitHub issues, change GitHub Project
-fields or membership, or process Chat implementation queue items are GitHub task
-and Project-administration requests unless the operator explicitly asks for
-repository code changes.
+fields or membership, or process Chat queue items are GitHub task and
+Project-administration requests. Queue mode is administrative-only and never
+authorises repository code or configuration changes; implementation requires a
+separate explicit non-queue request.
 
 For each such request:
 
