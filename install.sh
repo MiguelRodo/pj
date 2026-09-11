@@ -295,16 +295,25 @@ operator explicitly asks to update or refresh the installed
 `github-projects` skill across the managed repositories in that workspace,
 run `pj --update-skill` rather than constructing an ad hoc repository loop.
 
-The `pj --update-skill` path temporarily stashes pre-existing local work, syncs
-each tracked branch up to its upstream, ensures the installed
-`github-projects` skill tracks canonical `main` (reinstalling tag-pinned copies
-instead of trusting the update command's success message), commits only the
-skill refresh, pushes ordinary managed repositories and restores the operator's
-previous local work. It never merges or pushes the canonical
-`github-projects-skill` repository's protected `main`; that checkout is
-fast-forwarded when possible and otherwise reported as a failure. If a
-repository fails to sync, update, push or restore its stash, report the exact
-repository and error rather than claiming the whole update succeeded.
+The `pj --update-skill` path resolves each repository's real default branch
+(preferring the hosting provider's answer over whichever branch is checked out),
+refreshes the installed `github-projects` skill on an isolated worktree of that
+branch, and commits only the skill refresh, reinstalling tag-pinned copies
+instead of trusting the update command's success message. The operator's
+checked-out branch and dirty working state are never touched; a checkout that
+already sits on the default branch is fast-forwarded afterwards whenever git can
+do so without disturbing local work.
+An unprotected default branch receives the skill-only commit directly. When
+repository rules reject that direct push, the commit is preserved on a dedicated
+`pj/update-github-projects-skill` branch, pushed, and handed over through a pull
+request targeting the default branch; a rerun reuses the existing open
+skill-update pull request instead of opening another one, rewriting that branch
+if it ever gained changes outside `.agents/skills`, and protection is never
+bypassed. It never merges or pushes the canonical `github-projects-skill`
+repository's protected `main`; that checkout is fast-forwarded when possible and
+otherwise reported as a failure. If a repository cannot resolve its default
+branch, update, push or open its pull request, report the exact repository and
+error rather than claiming the whole update succeeded.
 
 The legacy `pj-update-skills` launcher remains as a compatibility shim for older
 shell setup, but the canonical entry point is `pj --update-skill`.

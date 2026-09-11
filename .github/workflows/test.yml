@@ -24,3 +24,5 @@ jobs:
         run: bash tests/update-managed-skills.sh
       - name: Run canonical managed skill updater tests
         run: bash tests/update-managed-skills-canonical.sh
+      - name: Run default-branch managed skill updater tests
+        run: bash tests/update-managed-skills-default-branch.sh

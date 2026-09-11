@@ -10,6 +10,21 @@ canonical_skill_ref="refs/heads/main"
 canonical_skill_pin="main"
 canonical_skill_tree_sha=""
 
+# Ordinary managed repositories receive this stable, pj-owned branch when
+# repository rules reject a direct push to their default branch. The stable name
+# is what lets a rerun reuse an open pull request instead of opening a second one
+# for the same skill refresh.
+skill_update_branch="pj/update-github-projects-skill"
+skill_commit_subject="Update $skill_name skill"
+
+updated_count=0
+unchanged_count=0
+skipped_count=0
+failed_count=0
+opened_pr_count=0
+reused_pr_count=0
+found=0
+
 is_canonical_skill_repo() {
   local path="$1"
   [ "$path" = "$canonical_skill_dir" ] || \
@@ -52,6 +67,471 @@ installed_skill_is_current() {
   return 0
 }
 
+# Describe why the installed copy on a default-branch worktree is not the
+# canonical main content. Prints nothing when it is already current.
+skill_refresh_reason() {
+  local repo_path="$1"
+
+  if [ -d "$repo_path/.agents/skills/$legacy_skill_name" ] || \
+     [ -f "$repo_path/.agents/skills/$legacy_skill_name/SKILL.md" ]; then
+    printf '%s is still installed\n' "$legacy_skill_name"
+  elif [ ! -f "$repo_path/.agents/skills/$skill_name/SKILL.md" ]; then
+    printf '%s is not installed\n' "$skill_name"
+  elif ! installed_skill_is_current "$repo_path"; then
+    printf '%s does not match %s main\n' "$skill_name" "$canonical_skill_repo"
+  fi
+}
+
+# The skill refresh must target the repository's default branch, never whatever
+# branch happens to be checked out. Prefer the hosting provider's answer, then
+# the remote HEAD recorded by the clone, then the conventional names. Only a
+# branch that has a real remote-tracking ref is returned.
+resolve_default_branch() {
+  local repo_path="$1"
+  local candidate
+  local candidates=()
+
+  candidate="$(cd "$repo_path" && gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || true)"
+  [ -n "$candidate" ] && candidates+=("$candidate")
+
+  candidate="$(git -C "$repo_path" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  [ -n "$candidate" ] && candidates+=("${candidate#origin/}")
+
+  candidates+=(main master)
+
+  for candidate in "${candidates[@]}"; do
+    [ -n "$candidate" ] || continue
+    if git -C "$repo_path" show-ref --verify --quiet "refs/remotes/origin/$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# A failed direct push is only handed to the pull-request path when the remote
+# rejected it because of repository rules. Network, authentication and
+# non-fast-forward failures stay failures, and protection is never bypassed.
+push_rejection_is_rules_based() {
+  printf '%s\n' "$1" | grep -Eqi \
+    'GH006|GH013|protected branch|branch protection|repository rule|pre-receive hook declined|remote rejected|required status check|required review|review is required|pull request'
+}
+
+# The worktrees live in fresh mktemp directories. Remove them without ever
+# following a path this script did not create.
+remove_worktree() {
+  local repo_path="$1"
+  local worktree_dir="$2"
+
+  [ -n "$worktree_dir" ] || return 0
+  [ -d "$worktree_dir" ] || return 0
+
+  git -C "$repo_path" worktree remove --force "$worktree_dir" >/dev/null 2>&1 || true
+  if [ -d "$worktree_dir" ]; then
+    case "$worktree_dir" in
+      */pj-skill-update.*)
+        rm -rf -- "$worktree_dir"
+        ;;
+      *)
+        echo "ERROR: refusing to remove unexpected worktree path: $worktree_dir" >&2
+        return 1
+        ;;
+    esac
+  fi
+  git -C "$repo_path" worktree prune >/dev/null 2>&1 || true
+}
+
+# Best-effort sync of the operator's own checkout when it already sits on the
+# default branch. The fast-forward only happens when the local branch is a pure
+# ancestor of the freshly pushed commit and git can apply it without disturbing
+# local work; local commits, conflicting local edits and every other branch are
+# left untouched.
+sync_local_default_branch() {
+  local repo_path="$1"
+  local default_branch="$2"
+  local new_sha="$3"
+  local current_branch
+
+  current_branch="$(git -C "$repo_path" branch --show-current)"
+  [ "$current_branch" = "$default_branch" ] || return 0
+
+  if ! git -C "$repo_path" merge-base --is-ancestor "refs/heads/$default_branch" "$new_sha"; then
+    echo "WARNING: local $default_branch has commits not on origin/$default_branch; leaving it unchanged." >&2
+    return 0
+  fi
+
+  if git -C "$repo_path" merge --ff-only "$new_sha" >/dev/null 2>&1; then
+    echo "Fast-forwarded the local $default_branch checkout to include the skill update."
+  else
+    echo "WARNING: could not fast-forward the local $default_branch checkout without disturbing local work; run 'git pull' when convenient." >&2
+  fi
+}
+
+# Push the skill commit to the dedicated update branch. A leftover branch from an
+# interrupted earlier run can make the plain push non-fast-forward; that branch
+# only ever carries this refresh, so update it under an explicit lease instead of
+# creating another branch or opening another pull request.
+push_skill_update_branch() {
+  local worktree_dir="$1"
+  local remote_branch="refs/heads/$skill_update_branch"
+  local expected output
+
+  output="$(git -C "$worktree_dir" push origin "HEAD:$remote_branch" 2>&1)" && return 0
+
+  expected="$(git -C "$worktree_dir" ls-remote origin "$remote_branch" 2>/dev/null | awk '{print $1}' | head -n1)"
+  output="$(git -C "$worktree_dir" push "--force-with-lease=$remote_branch:$expected" origin "HEAD:$remote_branch" 2>&1)" && return 0
+
+  printf '%s\n' "$output" >&2
+  return 1
+}
+
+# True when the open pull request's branch can be reused as is: it must carry
+# exactly the installed .agents/skills tree this run would push *and* its diff
+# against the point where it forked from the default branch must touch nothing
+# outside .agents/skills. A branch that gained an unrelated change is therefore
+# never reused unchanged; the caller rewrites it with the fresh, clean commit.
+update_branch_is_reusable() {
+  local worktree_dir="$1"
+  local default_branch="$2"
+  local default_ref="refs/remotes/origin/$default_branch"
+  local remote_ref="refs/remotes/origin/$skill_update_branch"
+  local desired_sha existing_sha base_sha path
+
+  git -C "$worktree_dir" fetch --quiet --force origin \
+    "+refs/heads/$skill_update_branch:$remote_ref" 2>/dev/null || return 1
+
+  desired_sha="$(git -C "$worktree_dir" rev-parse --verify --quiet 'HEAD:.agents/skills' 2>/dev/null)" || return 1
+  existing_sha="$(git -C "$worktree_dir" rev-parse --verify --quiet "$remote_ref:.agents/skills" 2>/dev/null)" || return 1
+  [ -n "$desired_sha" ] && [ "$desired_sha" = "$existing_sha" ] || return 1
+
+  # Compare against the fork point, not against the current default-branch tip:
+  # unrelated downstream commits on the default branch are not the pull
+  # request's business.
+  base_sha="$(git -C "$worktree_dir" merge-base "$remote_ref" "$default_ref" 2>/dev/null)" || return 1
+  [ -n "$base_sha" ] || return 1
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      .agents/skills/*) ;;
+      *) return 1 ;;
+    esac
+  done < <(git -C "$worktree_dir" diff --no-renames --name-only "$base_sha" "$remote_ref")
+}
+
+restore_stash() {
+  local repo_path="$1"
+  local had_stash="$2"
+
+  [ "$had_stash" -eq 1 ] || return 0
+
+  echo "Restoring previous local changes..."
+  if git -C "$repo_path" stash pop; then
+    return 0
+  fi
+
+  echo "ERROR: saved local changes conflicted while restoring in $repo_path" >&2
+  echo "The stash has been retained. Resolve that repository manually." >&2
+  return 1
+}
+
+# The canonical skill repository protects its main branch and requires pull
+# requests, so never manufacture or push a merge commit there. Fast-forward when
+# the remote simply moved ahead, and stop when the histories diverged.
+update_canonical_repo() {
+  local repo_path="$1"
+  local repo_name="$2"
+  local branch upstream
+  local had_stash=0
+
+  if [ -n "$(git -C "$repo_path" status --porcelain)" ]; then
+    echo "Stashing existing local changes..."
+    if ! git -C "$repo_path" stash push -u \
+      -m "Automatic stash before $skill_name update $(date '+%Y-%m-%d %H:%M:%S')"; then
+      echo "ERROR: could not stash local changes in $repo_name" >&2
+      return 1
+    fi
+    had_stash=1
+  fi
+
+  branch="$(git -C "$repo_path" branch --show-current)"
+  if [ -z "$branch" ]; then
+    echo "ERROR: detached HEAD in $repo_name" >&2
+    restore_stash "$repo_path" "$had_stash" || true
+    return 1
+  fi
+
+  upstream="$(git -C "$repo_path" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+
+  if [ -z "$upstream" ] && \
+     git -C "$repo_path" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    upstream="origin/$branch"
+  fi
+
+  if [ -n "$upstream" ]; then
+    if git -C "$repo_path" merge-base --is-ancestor "$upstream" HEAD; then
+      echo "Already contains latest $upstream."
+      if ! git -C "$repo_path" merge-base --is-ancestor HEAD "$upstream"; then
+        echo "WARNING: $repo_name has local commits not on $upstream; leaving them for a pull request." >&2
+      fi
+    elif git -C "$repo_path" merge-base --is-ancestor HEAD "$upstream"; then
+      echo "Fast-forwarding $repo_name to $upstream..."
+      if ! git -C "$repo_path" merge --ff-only "$upstream"; then
+        echo "ERROR: fast-forward failed in $repo_name" >&2
+        restore_stash "$repo_path" "$had_stash" || true
+        return 1
+      fi
+    else
+      echo "ERROR: canonical skill repository $repo_name has diverged from $upstream." >&2
+      echo "Refusing to create or push a merge commit on its protected branch." >&2
+      echo "Synchronise $repo_name manually, for example through a pull request, then retry." >&2
+      restore_stash "$repo_path" "$had_stash" || true
+      return 1
+    fi
+  else
+    echo "WARNING: no upstream configured for $repo_name; remote sync skipped." >&2
+  fi
+
+  echo "Canonical skill repository: skipping installed-skill refresh and push."
+
+  if ! restore_stash "$repo_path" "$had_stash"; then
+    return 1
+  fi
+
+  return 0
+}
+
+# Ordinary managed repositories are refreshed on an isolated worktree of their
+# default branch, so the operator's checked-out branch and dirty state are never
+# touched. The skill-only commit is pushed directly when repository rules allow
+# it; otherwise it is preserved on the dedicated update branch and handed over
+# through a pull request.
+#
+# Return codes: 0 updated, 1 failed, 2 already current, 3 skipped, 4 reused an
+# existing open skill-update pull request.
+update_managed_repo() {
+  local repo_path="$1"
+  local repo_name="$2"
+  local default_branch remote_default
+  local worktree_dir=""
+  local refresh_reason
+  local push_output push_status
+  local new_sha
+  local pr_info pr_output pr_status pr_number pr_url
+  local pr_body
+
+  if ! git -C "$repo_path" remote get-url origin >/dev/null 2>&1; then
+    echo "WARNING: no origin remote in $repo_name; skill refresh skipped." >&2
+    return 3
+  fi
+
+  default_branch="$(resolve_default_branch "$repo_path")" || true
+  if [ -z "$default_branch" ]; then
+    echo "ERROR: could not determine the default branch for $repo_name." >&2
+    return 1
+  fi
+  remote_default="refs/remotes/origin/$default_branch"
+
+  echo "Default branch: $default_branch"
+
+  worktree_dir="$(mktemp -d "${TMPDIR:-/tmp}/pj-skill-update.XXXXXXXX")" || {
+    echo "ERROR: could not create a temporary worktree directory for $repo_name." >&2
+    return 1
+  }
+
+  if ! git -C "$repo_path" worktree add --detach "$worktree_dir" "$remote_default" >/dev/null 2>&1; then
+    echo "ERROR: could not create an isolated worktree for origin/$default_branch in $repo_name." >&2
+    remove_worktree "$repo_path" "$worktree_dir"
+    return 1
+  fi
+
+  refresh_reason="$(skill_refresh_reason "$worktree_dir")"
+
+  if [ -z "$refresh_reason" ]; then
+    remove_worktree "$repo_path" "$worktree_dir"
+    echo "$skill_name already matches $canonical_skill_repo main on $default_branch; nothing to commit."
+    return 2
+  fi
+
+  # Pin to main explicitly: an unpinned install resolves the latest tagged
+  # release and would put the stale copy straight back.
+  echo "Installing $skill_name from $canonical_skill_repo@$canonical_skill_pin on $default_branch ($refresh_reason)..."
+  if ! (cd "$worktree_dir" && gh skill install "$canonical_skill_repo" "$skill_name" \
+          --agent universal --scope project --force --pin "$canonical_skill_pin") || \
+     ! installed_skill_is_current "$worktree_dir"; then
+    echo "ERROR: skill installation/migration failed in $repo_name; the installed skill is still not current." >&2
+    remove_worktree "$repo_path" "$worktree_dir"
+    return 1
+  fi
+
+  if [ -e "$worktree_dir/.agents/skills/$legacy_skill_name" ]; then
+    rm -rf -- "$worktree_dir/.agents/skills/$legacy_skill_name"
+  fi
+
+  if ! git -C "$worktree_dir" diff --quiet -- ".agents/skills" || \
+     ! git -C "$worktree_dir" diff --cached --quiet -- ".agents/skills" || \
+     [ -n "$(git -C "$worktree_dir" ls-files --others --exclude-standard -- ".agents/skills")" ]; then
+    if ! git -C "$worktree_dir" add -A -- ".agents/skills" || \
+       ! git -C "$worktree_dir" commit -m "$skill_commit_subject" >/dev/null; then
+      echo "ERROR: skill commit failed in $repo_name" >&2
+      remove_worktree "$repo_path" "$worktree_dir"
+      return 1
+    fi
+  else
+    remove_worktree "$repo_path" "$worktree_dir"
+    echo "$skill_name already matches $canonical_skill_repo main on $default_branch; nothing to commit."
+    return 2
+  fi
+
+  echo "Pushing $skill_commit_subject to origin/$default_branch..."
+  push_output="$(git -C "$worktree_dir" push origin "HEAD:refs/heads/$default_branch" 2>&1)"
+  push_status=$?
+
+  if [ "$push_status" -eq 0 ]; then
+    new_sha="$(git -C "$worktree_dir" rev-parse HEAD)"
+    remove_worktree "$repo_path" "$worktree_dir"
+    echo "Pushed $skill_commit_subject to origin/$default_branch."
+    sync_local_default_branch "$repo_path" "$default_branch" "$new_sha"
+    return 0
+  fi
+
+  if ! push_rejection_is_rules_based "$push_output"; then
+    echo "ERROR: push to origin/$default_branch failed in $repo_name." >&2
+    printf '%s\n' "$push_output" >&2
+    remove_worktree "$repo_path" "$worktree_dir"
+    return 1
+  fi
+
+  echo "Direct push to origin/$default_branch was rejected by repository rules; handing the skill-only commit to a pull request instead."
+
+  pr_info="$(cd "$repo_path" && gh pr list --head "$skill_update_branch" --base "$default_branch" \
+              --state open --json number,url --jq '.[0] | "\(.number) \(.url)"' 2>/dev/null)"
+  pr_status=$?
+
+  if [ "$pr_status" -ne 0 ]; then
+    echo "ERROR: could not check for an existing skill-update pull request in $repo_name." >&2
+    remove_worktree "$repo_path" "$worktree_dir"
+    return 1
+  fi
+
+  if [ -n "$pr_info" ]; then
+    pr_info="$(printf '%s\n' "$pr_info" | awk 'NF { print; exit }')"
+    pr_number="${pr_info%% *}"
+    pr_url="${pr_info#* }"
+
+    if ! printf '%s\n' "$pr_number" | grep -Eq '^[0-9]+$'; then
+      echo "ERROR: could not parse the existing skill-update pull request in $repo_name: $pr_info" >&2
+      remove_worktree "$repo_path" "$worktree_dir"
+      return 1
+    fi
+
+    if update_branch_is_reusable "$worktree_dir" "$default_branch"; then
+      remove_worktree "$repo_path" "$worktree_dir"
+      echo "Reusing existing skill-update pull request #$pr_number: $pr_url"
+      reused_pr_count=$((reused_pr_count + 1))
+      return 4
+    fi
+
+    echo "Existing skill-update branch is not a clean skill-only refresh; replacing it with the freshly generated commit."
+    if ! push_skill_update_branch "$worktree_dir"; then
+      echo "ERROR: could not update the existing skill-update branch in $repo_name." >&2
+      remove_worktree "$repo_path" "$worktree_dir"
+      return 1
+    fi
+
+    remove_worktree "$repo_path" "$worktree_dir"
+    echo "Updated existing skill-update pull request #$pr_number: $pr_url"
+    reused_pr_count=$((reused_pr_count + 1))
+    return 4
+  fi
+
+  if ! push_skill_update_branch "$worktree_dir"; then
+    echo "ERROR: could not push $skill_update_branch in $repo_name." >&2
+    remove_worktree "$repo_path" "$worktree_dir"
+    return 1
+  fi
+
+  pr_body="$(printf '%s\n\n%s\n' \
+    "Automated skill-only refresh of $skill_name from $canonical_skill_repo@$canonical_skill_pin." \
+    "Direct pushes to $default_branch are rejected by repository rules, so pj --update-skill preserved the refresh on $skill_update_branch and opened this pull request. The branch contains only .agents/skills changes.")"
+
+  pr_output="$(cd "$repo_path" && gh pr create \
+    --base "$default_branch" \
+    --head "$skill_update_branch" \
+    --title "$skill_commit_subject" \
+    --body "$pr_body" 2>&1)"
+  pr_status=$?
+
+  if [ "$pr_status" -ne 0 ]; then
+    echo "ERROR: pushed $skill_update_branch but could not open a pull request in $repo_name." >&2
+    printf '%s\n' "$pr_output" >&2
+    remove_worktree "$repo_path" "$worktree_dir"
+    return 1
+  fi
+
+  pr_url="$(printf '%s\n' "$pr_output" | grep -Eo 'https?://[^[:space:]]+' | tail -n1)"
+  if [ -z "$pr_url" ]; then
+    pr_url="$pr_output"
+  fi
+
+  remove_worktree "$repo_path" "$worktree_dir"
+  echo "Opened skill-update pull request: $pr_url"
+  opened_pr_count=$((opened_pr_count + 1))
+  return 0
+}
+
+update_repo() {
+  local repo_path="$1"
+  local repo_name
+  local rc
+
+  repo_name="$(basename "$repo_path")"
+
+  echo
+  echo "============================================================"
+  echo "Updating: $repo_name"
+  echo "============================================================"
+
+  echo "Fetching..."
+  if ! git -C "$repo_path" fetch --prune; then
+    echo "ERROR: fetch failed in $repo_name" >&2
+    failed_count=$((failed_count + 1))
+    return 1
+  fi
+
+  if is_canonical_skill_repo "$repo_path"; then
+    resolve_canonical_skill_tree_sha
+    if update_canonical_repo "$repo_path" "$repo_name"; then
+      unchanged_count=$((unchanged_count + 1))
+      return 0
+    fi
+    failed_count=$((failed_count + 1))
+    return 1
+  fi
+
+  update_managed_repo "$repo_path" "$repo_name"
+  rc=$?
+
+  case "$rc" in
+    0)
+      updated_count=$((updated_count + 1))
+      ;;
+    2|4)
+      unchanged_count=$((unchanged_count + 1))
+      ;;
+    3)
+      skipped_count=$((skipped_count + 1))
+      ;;
+    *)
+      failed_count=$((failed_count + 1))
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
 if [ "$(basename "$0")" = "pj-update-skills" ] && command -v pj >/dev/null 2>&1; then
   exec pj --update-skill "$@"
 fi
@@ -79,246 +559,6 @@ fi
 
 cd "$workspace" || exit 1
 
-updated_count=0
-unchanged_count=0
-failed_count=0
-
-restore_stash() {
-  local repo_path="$1"
-  local had_stash="$2"
-
-  [ "$had_stash" -eq 1 ] || return 0
-
-  echo "Restoring previous local changes..."
-  if git -C "$repo_path" stash pop; then
-    return 0
-  fi
-
-  echo "ERROR: saved local changes conflicted while restoring in $repo_path" >&2
-  echo "The stash has been retained. Resolve that repository manually." >&2
-  return 1
-}
-
-restore_skills() {
-  local repo_path="$1"
-  local backup_dir="$2"
-
-  git -C "$repo_path" reset --quiet -- ".agents/skills" 2>/dev/null || true
-  git -C "$repo_path" checkout --quiet -- ".agents/skills" 2>/dev/null || true
-  git -C "$repo_path" clean -fd --quiet -- ".agents/skills" 2>/dev/null || true
-
-  rm -rf "$repo_path/.agents/skills"
-  if [ -d "$backup_dir/skills" ]; then
-    mkdir -p "$repo_path/.agents"
-    cp -a "$backup_dir/skills" "$repo_path/.agents/skills"
-  fi
-  rm -rf "$backup_dir"
-}
-
-update_repo() {
-  local repo_path="$1"
-  local repo_name
-  local had_stash=0
-  local branch
-  local upstream
-  local repo_updated=0
-
-  repo_name="$(basename "$repo_path")"
-
-  echo
-  echo "============================================================"
-  echo "Updating: $repo_name"
-  echo "============================================================"
-
-  if [ -n "$(git -C "$repo_path" status --porcelain)" ]; then
-    echo "Stashing existing local changes..."
-    if ! git -C "$repo_path" stash push -u \
-      -m "Automatic stash before $skill_name update $(date '+%Y-%m-%d %H:%M:%S')"; then
-      echo "ERROR: could not stash local changes in $repo_name" >&2
-      return 1
-    fi
-    had_stash=1
-  fi
-
-  branch="$(git -C "$repo_path" branch --show-current)"
-  if [ -z "$branch" ]; then
-    echo "ERROR: detached HEAD in $repo_name" >&2
-    restore_stash "$repo_path" "$had_stash" || true
-    return 1
-  fi
-
-  local is_canonical=0
-  if is_canonical_skill_repo "$repo_path"; then
-    is_canonical=1
-  fi
-
-  echo "Fetching..."
-  if ! git -C "$repo_path" fetch --prune; then
-    echo "ERROR: fetch failed in $repo_name" >&2
-    restore_stash "$repo_path" "$had_stash" || true
-    return 1
-  fi
-
-  if [ "$is_canonical" -eq 1 ]; then
-    resolve_canonical_skill_tree_sha
-  fi
-
-  upstream="$(git -C "$repo_path" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
-
-  if [ -z "$upstream" ] && \
-     git -C "$repo_path" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-    upstream="origin/$branch"
-    if ! git -C "$repo_path" branch --set-upstream-to="$upstream" "$branch"; then
-      echo "ERROR: could not set upstream for $repo_name" >&2
-      restore_stash "$repo_path" "$had_stash" || true
-      return 1
-    fi
-  fi
-
-  if [ -n "$upstream" ]; then
-    if git -C "$repo_path" merge-base --is-ancestor "$upstream" HEAD; then
-      echo "Already contains latest $upstream."
-      if [ "$is_canonical" -eq 1 ] && \
-         ! git -C "$repo_path" merge-base --is-ancestor HEAD "$upstream"; then
-        echo "WARNING: $repo_name has local commits not on $upstream; leaving them for a pull request." >&2
-      fi
-    elif [ "$is_canonical" -eq 1 ]; then
-      # The canonical skill repository protects its main branch and requires pull
-      # requests, so never manufacture or push a merge commit there. Fast-forward
-      # when the remote simply moved ahead, and stop when the histories diverged.
-      if git -C "$repo_path" merge-base --is-ancestor HEAD "$upstream"; then
-        echo "Fast-forwarding $repo_name to $upstream..."
-        if ! git -C "$repo_path" merge --ff-only "$upstream"; then
-          echo "ERROR: fast-forward failed in $repo_name" >&2
-          restore_stash "$repo_path" "$had_stash" || true
-          return 1
-        fi
-      else
-        echo "ERROR: canonical skill repository $repo_name has diverged from $upstream." >&2
-        echo "Refusing to create or push a merge commit on its protected branch." >&2
-        echo "Synchronise $repo_name manually, for example through a pull request, then retry." >&2
-        restore_stash "$repo_path" "$had_stash" || true
-        return 1
-      fi
-    else
-      echo "Merging $upstream..."
-      if ! git -C "$repo_path" merge --no-ff "$upstream" \
-        -m "Merge $upstream before updating $skill_name skill"; then
-        echo "ERROR: merge failed in $repo_name; aborting merge." >&2
-        git -C "$repo_path" merge --abort 2>/dev/null || true
-        restore_stash "$repo_path" "$had_stash" || true
-        return 1
-      fi
-    fi
-  else
-    echo "WARNING: no upstream configured for $repo_name; remote sync skipped." >&2
-  fi
-
-  if [ "$is_canonical" -eq 1 ]; then
-    echo "Canonical skill repository: skipping installed-skill refresh and push."
-  else
-    local legacy_installed=0
-    if [ -d "$repo_path/.agents/skills/$legacy_skill_name" ] || \
-       [ -f "$repo_path/.agents/skills/$legacy_skill_name/SKILL.md" ]; then
-      legacy_installed=1
-    fi
-
-    local needs_migration=0
-    local migration_reason=""
-    if [ "$legacy_installed" -eq 1 ]; then
-      needs_migration=1
-      migration_reason="$legacy_skill_name is still installed"
-    elif [ ! -f "$repo_path/.agents/skills/$skill_name/SKILL.md" ]; then
-      needs_migration=1
-      migration_reason="$skill_name is not installed"
-    elif ! installed_skill_is_current "$repo_path"; then
-      needs_migration=1
-      migration_reason="$skill_name does not match $canonical_skill_repo main"
-    fi
-
-    local skills_backup
-    skills_backup="$(mktemp -d)"
-    if [ -d "$repo_path/.agents/skills" ]; then
-      cp -a "$repo_path/.agents/skills" "$skills_backup/skills"
-    fi
-
-    if [ "$needs_migration" -eq 1 ]; then
-      # Pin to main explicitly: an unpinned install resolves the latest tagged
-      # release and would put the stale copy straight back.
-      echo "Installing $skill_name from $canonical_skill_repo@$canonical_skill_pin ($migration_reason)..."
-      if ! (cd "$repo_path" && gh skill install "$canonical_skill_repo" "$skill_name" \
-              --agent universal --scope project --force --pin "$canonical_skill_pin") || \
-         ! installed_skill_is_current "$repo_path"; then
-        echo "ERROR: skill installation/migration failed in $repo_name; the installed skill is still not current." >&2
-        restore_skills "$repo_path" "$skills_backup"
-        restore_stash "$repo_path" "$had_stash" || true
-        return 1
-      fi
-    else
-      # `gh skill update` is deliberately not trusted here: it reports tagged
-      # copies as up to date and would resolve the latest tag for the rest.
-      # Reconciliation happens by comparing against canonical main above.
-      echo "$skill_name already matches $canonical_skill_repo main."
-    fi
-
-    if [ -e "$repo_path/.agents/skills/$legacy_skill_name" ]; then
-      rm -rf "$repo_path/.agents/skills/$legacy_skill_name"
-    fi
-    rm -rf "$skills_backup"
-
-    if ! git -C "$repo_path" diff --quiet -- ".agents/skills" || \
-       ! git -C "$repo_path" diff --cached --quiet -- ".agents/skills" || \
-       [ -n "$(git -C "$repo_path" ls-files --others --exclude-standard -- ".agents/skills")" ]; then
-      git -C "$repo_path" add -A -- ".agents/skills" || {
-        restore_stash "$repo_path" "$had_stash" || true
-        return 1
-      }
-      if ! git -C "$repo_path" commit -m "Update $skill_name skill"; then
-        echo "ERROR: skill commit failed in $repo_name" >&2
-        restore_stash "$repo_path" "$had_stash" || true
-        return 1
-      fi
-      repo_updated=1
-    else
-      echo "Skill already current; nothing to commit."
-    fi
-  fi
-
-  if [ "$is_canonical" -eq 1 ]; then
-    echo "Canonical skill repository: push skipped; protected main is updated through pull requests."
-  elif git -C "$repo_path" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
-    echo "Pushing $repo_name..."
-    if ! git -C "$repo_path" push; then
-      echo "ERROR: push failed in $repo_name" >&2
-      restore_stash "$repo_path" "$had_stash" || true
-      return 1
-    fi
-  elif git -C "$repo_path" remote get-url origin >/dev/null 2>&1; then
-    echo "Pushing $repo_name and setting upstream..."
-    if ! git -C "$repo_path" push -u origin "$branch"; then
-      echo "ERROR: push failed in $repo_name" >&2
-      restore_stash "$repo_path" "$had_stash" || true
-      return 1
-    fi
-  else
-    echo "WARNING: no origin remote in $repo_name; push skipped." >&2
-  fi
-
-  if ! restore_stash "$repo_path" "$had_stash"; then
-    return 1
-  fi
-
-  if [ "$repo_updated" -eq 1 ]; then
-    updated_count=$((updated_count + 1))
-  else
-    unchanged_count=$((unchanged_count + 1))
-  fi
-
-  return 0
-}
-
-found=0
-
 process_workspace_entry() {
   local entry="$1"
 
@@ -327,9 +567,7 @@ process_workspace_entry() {
      [ -f "$entry/.agents/skills/$skill_name/SKILL.md" ] || \
      [ -f "$entry/.agents/skills/$legacy_skill_name/SKILL.md" ]; then
     found=1
-    if ! update_repo "$entry"; then
-      failed_count=$((failed_count + 1))
-    fi
+    update_repo "$entry" || true
   fi
 }
 
@@ -355,6 +593,8 @@ echo "Managed skill update finished"
 echo "============================================================"
 echo "Updated repositories:   $updated_count"
 echo "Already current/synced: $unchanged_count"
+echo "Skipped repositories:   $skipped_count"
+echo "Skill-update PRs:       $opened_pr_count opened, $reused_pr_count reused"
 echo "Failed repositories:    $failed_count"
 echo "Workspace:              $workspace"
 
