@@ -159,9 +159,9 @@ The canonical `github-projects-skill` repository is synced but is not asked to u
 
 Agents launched under the home or planning `AGENTS.md` guidance are told to use `pj --update-skill` when the operator explicitly asks them to update the shared skill across local repositories, instead of building another one-off shell loop.
 
-## Chat implementation queue
+## Chat administration queue
 
-These are equivalent:
+These compatibility forms are equivalent:
 
 ```bash
 pj -i
@@ -169,19 +169,31 @@ pj --implement-issues
 pj --implement-chat
 ```
 
-They ask the selected backend to process trusted `pj:implement-chat` handoff issues using `github-projects` and the managed repositories discovered from local `.projects` contracts.
+Despite the historical option and label names, queue mode is **administrative-only**.
+It asks the selected backend to process trusted `pj:implement-chat` temporary
+handoffs for bounded GitHub issue/Project mutations using `github-projects` and
+the managed repositories discovered from local `.projects` contracts.
+
+Queue mode never authorises repository implementation. It must not edit
+repository files, change application/repository configuration, run implementation
+tests, create or update implementation branches or pull requests, or delegate
+coding work to another agent. Implementation requires a separate explicit
+non-queue invocation.
 
 Pass one optional repository selector with `-r` or `--repo` to restrict queue discovery:
 
 ```bash
 pj -i -r projects
 pj -i --repo issues
-pj -i --repo MiguelRodo/projects
+pj -i --repo example-user/projects
 ```
 
-A bare selector value such as `issues` matches every managed issue repository with that repository name regardless of owner. An `owner/repo` selector matches that exact managed repository. Matching never broadens beyond repositories already declared by the local managed-project contracts.
+A bare selector such as `issues` matches every managed issue repository with
+that exact repository name regardless of owner. An `owner/repo` selector
+matches that exact managed repository. Matching never broadens beyond
+repositories declared by local managed-project contracts.
 
-Queue mode composes with other `pj`-owned options in the same leading prefix:
+Queue mode composes with other `pj`-owned options in the leading prefix:
 
 ```bash
 pj -o -i -r projects
@@ -189,7 +201,11 @@ pj -i -o -r projects
 pj -i -r projects --oneshot
 ```
 
-The launcher does not implement GitHub queue discovery itself. It validates and passes the optional selector to the agent, while the canonical matching, trust, mutation and readback rules remain in `github-projects`.
+The launcher does not implement queue discovery itself. It validates and passes
+the selector to the agent, while the canonical matching, trust, administrative
+mutation and readback rules remain in `github-projects`. The launcher also
+injects the no-implementation rule directly as a defence against stale installed
+skill guidance.
 
 ## Testing
 
