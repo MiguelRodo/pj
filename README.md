@@ -171,16 +171,47 @@ pj --implement-issues
 pj --implement-chat
 ```
 
-Despite the historical option and label names, queue mode is **administrative-only**.
-It asks the selected backend to process trusted `pj:implement-chat` temporary
-handoffs for bounded GitHub issue/Project mutations using `github-projects` and
-the managed repositories discovered from local `.projects` contracts.
+Despite the historical option and label names, queue mode is
+**administrative-only**. It asks the selected backend to process
+`pj:implement-chat` queue items — temporary administrative handoffs and existing
+task issues that need administrative reconciliation — using `github-projects`
+and the managed repositories discovered from local `.projects` contracts.
 
-Queue mode never authorises repository implementation. It must not edit
-repository files, change application/repository configuration, run implementation
-tests, create or update implementation branches or pull requests, or delegate
-coding work to another agent. Implementation requires a separate explicit
-non-queue invocation.
+That boundary is an **effect boundary, not a request-type filter**. Queue mode
+may freely use the `projects` CLI, `gh`, REST, GraphQL and shell or Python
+helpers; what is constrained is the effect those mechanisms produce. The
+resulting effects must be GitHub issue or Project administration, and ordinary
+task prose such as "Build X", "Implement Y", "Fix Z", "Measure A", "Analyse B"
+or "Test C" describes the work a task represents. It is not an instruction for
+queue mode to perform that work, and it must not cause the item's administration
+to be skipped.
+
+Queue mode therefore administers and verifies every separable authorised
+GitHub issue/Project operation while leaving the substantive task untouched. It
+must never edit application or repository files for the underlying task,
+implement product, code or configuration changes, run implementation tests
+merely to do the task, collect measurements or perform task-requested research,
+analysis or data work, create implementation branches or pull requests, or
+delegate the substantive task to another coding agent. When an item contains
+both substantive and administrative work, the administrative portion is
+performed and independently verified rather than the whole item being skipped.
+Substantive work still requires a separate explicit non-queue invocation.
+
+Authority follows the canonical skill's resolved governance rather than a second
+launcher-level model. The "currently authenticated user" is the GitHub account
+reported by the local authenticated `gh` session used by `pj`. Under checked
+solo or personal administration, a trusted task issue authored by that account
+and carrying the configured queue label may use the skill's streamlined
+reconciliation path. Under collaborative or shared governance, or when
+governance is missing or ambiguous, the stronger rule applies: an unedited
+authority comment beginning exactly with `PJ implementation authority:` must
+state the bounded administrative delta itself rather than referring back to
+mutable issue-body text. Temporary handoffs always use that stronger path.
+
+Completion follows the item's shape. A temporary handoff is unlabelled and
+closed after independent verification. An ordinary task issue is unlabelled when
+appropriate once its administration is verified, but is not closed merely
+because its administration is complete.
 
 Pass one optional repository selector with `-r` or `--repo` to restrict queue discovery:
 
@@ -204,10 +235,11 @@ pj -i -r projects --oneshot
 ```
 
 The launcher does not implement queue discovery itself. It validates and passes
-the selector to the agent, while the canonical matching, trust, administrative
-mutation and readback rules remain in `github-projects`. The launcher also
-injects the no-implementation rule directly as a defence against stale installed
-skill guidance.
+the selector to the agent, while the canonical matching, trust, authority,
+administrative mutation and readback rules remain in `github-projects`. The
+launcher also injects the no-substantive-task rule directly as defence in depth
+against stale installed skill guidance; that injected rule is effect-based, so
+it cannot re-introduce a request-type skip.
 
 ## Testing
 
