@@ -72,8 +72,50 @@ assert_contains "$queue_oneshot_short" 'copilot'
 assert_contains "$queue_oneshot_short" '<-p>'
 assert_not_contains "$queue_oneshot_short" '<-i>'
 assert_contains "$queue_oneshot_short" 'Process the Chat administration queue across the managed repositories in this workspace.'
-assert_contains "$queue_oneshot_short" 'NEVER edit repository files'
-assert_contains "$queue_oneshot_short" 'requires a separate explicit non-queue invocation'
+assert_contains "$queue_oneshot_short" 'references/local-implementation-queue.md'
+assert_contains "$queue_oneshot_short" 'without asking for a routine preview'
+
+# The queue safeguard is an effect boundary, not a request-type filter. Keeping
+# the substantive work out is what matters; the mechanisms available for
+# administration are deliberately not restricted.
+assert_contains "$queue_oneshot_short" 'Queue mode is an effect boundary, not a tooling restriction'
+assert_contains "$queue_oneshot_short" 'may freely use the projects CLI, gh, REST, GraphQL and shell or Python helpers'
+assert_contains "$queue_oneshot_short" 'Queue mode must NEVER perform the substantive task itself'
+assert_contains "$queue_oneshot_short" 'do not edit application or repository files for the underlying task'
+assert_contains "$queue_oneshot_short" 'implement product, code or configuration changes'
+assert_contains "$queue_oneshot_short" 'run implementation tests merely to do the task'
+assert_contains "$queue_oneshot_short" 'collect measurements or perform research, analysis or data work the task requests'
+assert_contains "$queue_oneshot_short" 'create implementation branches or pull requests'
+assert_contains "$queue_oneshot_short" 'delegate the substantive task to another coding agent'
+
+# Imperative task prose is a task description, never queue execution authority,
+# and it must not suppress the administrative work that accompanies it.
+assert_contains "$queue_oneshot_short" "Ordinary task prose such as 'Build X', 'Implement Y', 'Fix Z', 'Measure A', 'Analyse B' or 'Test C' describes the work the task represents"
+assert_contains "$queue_oneshot_short" "must never cause the issue's administration to be skipped"
+assert_contains "$queue_oneshot_short" 'An issue is administered even when it names substantive work'
+assert_contains "$queue_oneshot_short" "'Build X' with an explicit Class, Priority or Status metadata line asks for exactly that metadata to be applied and verified, not for X to be built"
+assert_contains "$queue_oneshot_short" "'Measure production behaviour' may still be classified, routed or otherwise administered, but no measurement is performed"
+assert_contains "$queue_oneshot_short" "'Fix bug Y' may still have its membership, fields and hierarchy administered, but repository files, tests and implementation pull requests stay untouched"
+assert_contains "$queue_oneshot_short" 'Perform every separable authorised GitHub issue/Project administrative operation for the queued item while leaving the substantive task untouched'
+assert_contains "$queue_oneshot_short" 'When an issue contains both substantive work and administrative work, perform and independently verify the administrative portion instead of skipping the whole issue because substantive work is present'
+
+# Authority is delegated to the canonical skill's resolved governance rather
+# than restated as a competing launcher model.
+assert_contains "$queue_oneshot_short" "Defer to that skill's resolved governance and authority rules instead of substituting a second authority model for them"
+assert_contains "$queue_oneshot_short" "Treat the 'currently authenticated user' as the GitHub account reported by the local authenticated gh session used by pj"
+assert_contains "$queue_oneshot_short" 'checked solo or personal administration'
+assert_contains "$queue_oneshot_short" "a trusted task issue authored by that account and carrying the configured queue label may use the skill's streamlined reconciliation path"
+assert_contains "$queue_oneshot_short" 'Under collaborative or shared governance, or when governance is missing or ambiguous, the stronger rule applies'
+assert_contains "$queue_oneshot_short" "'PJ implementation authority:' must state the bounded administrative delta itself rather than referring back to mutable issue-body text"
+assert_contains "$queue_oneshot_short" 'Temporary administrative handoffs always use that stronger authority-comment path'
+
+# Completion is shape-specific: only a temporary handoff closes.
+assert_contains "$queue_oneshot_short" 'remove the queue label and close a temporary handoff, but do not close an ordinary task issue merely because its administration is complete'
+
+# The request-type wording that skipped an item's administration is gone.
+assert_not_contains "$queue_oneshot_short" 'skip that implementation'
+assert_not_contains "$queue_oneshot_short" 'requires a separate explicit non-queue invocation'
+assert_not_contains "$queue_oneshot_short" 'NEVER edit repository files'
 
 queue_oneshot_long="$(PJ_BACKEND=copilot PJ_SESSION_MODE=interactive run_pj -i --oneshot --repo projects)" || exit 1
 assert_contains "$queue_oneshot_long" '<-p>'

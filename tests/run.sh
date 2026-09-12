@@ -197,8 +197,14 @@ implement_short="$(run_named pj -i)" || exit 1
 assert_contains "$implement_short" 'codex'
 assert_contains "$implement_short" '<exec>'
 assert_contains "$implement_short" '<Process the Chat administration queue across the managed repositories in this workspace.'
-assert_contains "$implement_short" 'NEVER edit repository files'
-assert_contains "$implement_short" 'requires a separate explicit non-queue invocation'
+assert_contains "$implement_short" 'Queue mode is an effect boundary, not a tooling restriction'
+assert_contains "$implement_short" 'Queue mode must NEVER perform the substantive task itself'
+assert_contains "$implement_short" "'Build X' with an explicit Class, Priority or Status metadata line asks for exactly that metadata to be applied and verified, not for X to be built"
+assert_contains "$implement_short" "must never cause the issue's administration to be skipped"
+assert_contains "$implement_short" 'checked solo or personal administration'
+assert_contains "$implement_short" 'Under collaborative or shared governance, or when governance is missing or ambiguous, the stronger rule applies'
+assert_contains "$implement_short" 'do not close an ordinary task issue merely because its administration is complete'
+assert_not_contains "$implement_short" 'requires a separate explicit non-queue invocation'
 assert_contains "$implement_short" 'references/local-implementation-queue.md'
 assert_contains "$implement_short" 'without asking for a routine preview'
 

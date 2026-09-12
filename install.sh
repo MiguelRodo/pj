@@ -440,7 +440,10 @@ requests to add, update, close or organise GitHub issues, change GitHub Project
 fields or membership, or process Chat queue items are GitHub task and
 Project-administration requests. Queue mode is administrative-only and never
 authorises repository code or configuration changes; implementation requires a
-separate explicit non-queue request.
+separate explicit non-queue request. That boundary is an effect boundary, not a
+request-type filter: ordinary task prose such as "build X" or "measure Y"
+describes the work the task represents and must not cause the item's
+administration to be skipped.
 
 For each such request:
 
@@ -460,8 +463,9 @@ across the local managed repositories, use `pj --update-skill`. Do not recreate 
 one-off loop unless that installed updater is unavailable. Treat this as local
 operator maintenance rather than an issue or Project mutation.
 
-For implementation-queue requests, follow `github-projects`'s
-`references/local-implementation-queue.md`, including its trust and review rules.
+For queue requests, follow `github-projects`'s
+`references/local-implementation-queue.md`, including its effect-boundary,
+authority, trust and review rules.
 A repository or Project name supplied by the operator narrows resolution to the
 corresponding managed target; do not broaden to arbitrary accessible repositories.
 
