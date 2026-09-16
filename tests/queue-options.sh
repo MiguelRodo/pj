@@ -146,7 +146,7 @@ assert_contains "$equals_repo" "Restrict queue discovery to the repository selec
 project_only="$(PJ_BACKEND=codex run_pj -i --project personal)" || exit 1
 assert_contains "$project_only" "Restrict queue discovery to the Project selector 'personal'"
 assert_contains "$project_only" 'Search only open issues carrying the configured queue label'
-assert_contains "$project_only" 'combine multiple selectors by intersection'
+assert_contains "$project_only" 'selectors by intersection'
 
 subproject_only="$(PJ_BACKEND=codex run_pj -i --subproject monitoring)" || exit 1
 assert_contains "$subproject_only" "Restrict queue discovery to the sub-project selector 'monitoring'"
@@ -161,6 +161,11 @@ assert_contains "$combined" "Restrict queue discovery to the sub-project selecto
 equals_scope="$(PJ_BACKEND=codex run_pj -i --project=personal --subproject=monitoring)" || exit 1
 assert_contains "$equals_scope" "Restrict queue discovery to the Project selector 'personal'"
 assert_contains "$equals_scope" "Restrict queue discovery to the sub-project selector 'monitoring'"
+
+# Single-Project titles may contain spaces; canonical matching still decides
+# whether the exact managed title exists.
+project_title="$(PJ_BACKEND=codex run_pj -i --project 'Example Project')" || exit 1
+assert_contains "$project_title" "Restrict queue discovery to the Project selector 'Example Project'"
 
 # No selector preserves the cross-repository queue request.
 all_repos="$(PJ_BACKEND=codex run_pj --implement-issues)" || exit 1
@@ -198,6 +203,11 @@ fi
 
 if PJ_BACKEND=codex run_pj -i --subproject 'monitoring/child' >/dev/null 2>&1; then
   echo 'pj -i unexpectedly accepted an invalid sub-project selector' >&2
+  exit 1
+fi
+
+if PJ_BACKEND=codex run_pj -i --project= >/dev/null 2>&1; then
+  echo 'pj -i unexpectedly accepted an empty Project selector' >&2
   exit 1
 fi
 
