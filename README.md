@@ -234,12 +234,20 @@ selectors match exact configured sub-project keys. Matching never broadens
 beyond scopes declared by local managed-project contracts, and queue discovery
 considers open issues only.
 
-Queue mode now runs the canonical `github-projects` deterministic preflight
-before starting an agent. If the selected managed scope is empty or unmatched,
-`pj` exits successfully without launching Codex, Copilot or Antigravity. When
-work exists, the preflight passes only the matching issue identities and local
-repository roots into the queue prompt so the agent does not rediscover the
-workspace. The preflight is read-only and does not establish mutation authority.
+Queue mode runs the canonical `github-projects` deterministic preflight before
+model startup. If the selected managed scope is empty or unmatched, `pj` exits
+successfully without launching Codex, Copilot or Antigravity. For a ready queue,
+the default `--queue-agent auto` path consumes the resolved contract supplied by
+preflight and runs the canonical deterministic executor first. When every item is
+`applied_verified`, `pj` exits without starting a model. `needs_agent` and
+mandatory `review_required` receipts launch only the bounded agent handoff;
+`blocked` and `partial_failure` remain hard stops and are not silently retried.
+
+Use `--queue-agent before` to force agent handling before deterministic execution,
+or `--queue-agent after` to run the deterministic phase and then review its
+receipts with the selected backend. These policies add agent involvement but do
+not alter queue authority. Deterministic receipts are handed to the agent through
+a temporary local JSONL file and removed when the session ends.
 
 Queue mode composes with other `pj`-owned options in the leading prefix:
 
