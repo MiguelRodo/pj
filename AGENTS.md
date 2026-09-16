@@ -153,12 +153,15 @@ selectors intersect, and closed issues are never candidates.
 
 Queue mode uses the canonical `github-projects` deterministic preflight
 **before** model startup. Empty or unmatched selected scope returns without
-launching an agent. A non-empty queue passes bounded candidate identities and
-local repository roots to the agent so it does not rediscover the workspace.
-Reusable discovery stays in `github-projects`; `pj` must not grow a second
-contract parser. If the installed preflight is unavailable, preserve the older
-agent-discovery path with a clear `pj --update-skill` warning rather than
-guessing contract semantics locally.
+launching an agent. By default (`--queue-agent auto`), a ready candidate with
+the current canonical executor is administered deterministically first; start
+an agent only for canonical `needs_agent` / `review_required` outcomes. The
+`before` policy skips deterministic execution and the `after` policy adds agent
+review after it. `blocked` and `partial_failure` are hard stops, never retry
+authority. Reusable discovery, contract resolution, authority and receipts stay
+in `github-projects`; `pj` must not grow a second contract parser. If preflight
+or executor support is stale/unavailable, fall back to the bounded agent path
+with a clear `pj --update-skill` warning rather than guessing semantics locally.
 
 ## What Ponytail should attack
 
