@@ -313,6 +313,25 @@ assert_contains "$blocked_output" "queue item MiguelRodo/issues#42: blocked"
 assert_contains "$blocked_output" "deterministic queue processing stopped on a hard failure"
 assert_not_contains "$blocked_output" "codex"
 
+: >"$tmp/executor.log"
+set +e
+partial_output="$(PJ_BACKEND=codex PJ_TEST_EXECUTOR_STATUS=partial_failure run_pj_with_queue_scripts -i --project personal 2>&1)"
+partial_status=$?
+set -e
+[ "$partial_status" -ne 0 ] || { echo "partial queue failure unexpectedly succeeded" >&2; exit 1; }
+assert_contains "$partial_output" "queue item MiguelRodo/issues#42: partial_failure"
+assert_not_contains "$partial_output" "codex"
+
+# Invalid queue invocations fail before preflight/executor mutation.
+: >"$tmp/executor.log"
+set +e
+invalid_queue="$(PJ_BACKEND=codex PJ_TEST_EXECUTOR_STATUS=applied_verified run_pj_with_queue_scripts -i unexpected-prompt 2>&1)"
+invalid_status=$?
+set -e
+[ "$invalid_status" -ne 0 ] || { echo "invalid queue invocation unexpectedly succeeded" >&2; exit 1; }
+assert_contains "$invalid_queue" "does not take prompt or agent arguments"
+[ ! -s "$tmp/executor.log" ] || { echo "invalid queue invocation ran executor" >&2; exit 1; }
+
 # Old preflight output falls back safely rather than guessing the contract.
 : >"$tmp/executor.log"
 old_preflight="$(PJ_BACKEND=codex PJ_TEST_PREFLIGHT_STATUS=oldready run_pj_with_queue_scripts -i --project personal 2>&1)" || exit 1
