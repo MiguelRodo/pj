@@ -664,15 +664,27 @@ if [ "$queue_mode" -eq 1 ]; then
 
   if [ "$queue_preflight_status" = "ready" ]; then
     queue_prompt="$queue_prompt Deterministic read-only preflight has already resolved the queue. Process only the candidate issues listed below; do not rescan the workspace or rediscover the queue."
-    while IFS=$'\t' read -r kind repository number url project_identity sub_key root; do
+    while IFS="$queue_tab" read -r kind repository number url project_identity sub_key root contract; do
       [ "$kind" = "candidate" ] || continue
-      queue_prompt="$queue_prompt Candidate: $repository#$number ($url), Project '$project_identity', sub-project '$sub_key', local repository root '$root'."
+      queue_prompt="$queue_prompt Candidate: $repository#$number ($url), Project '$project_identity', sub-project '$sub_key', local repository root '$root', resolved contract '$contract'."
     done <<<"$queue_preflight_output"
 
     queue_reference="$(cd "$(dirname "$queue_preflight_path")/../references" 2>/dev/null && pwd)/local-implementation-queue.md"
     if [ -f "$queue_reference" ]; then
       queue_prompt="$queue_prompt The canonical queue reference for this run is '$queue_reference'."
     fi
+  fi
+
+  if [ "$queue_deterministic_used" -eq 1 ]; then
+    queue_prompt="$queue_prompt Deterministic queue processing has already run. Its one-JSON-object-per-line receipts are in '$queue_receipts_file'."
+    queue_prompt="$queue_prompt Do not repeat an applied_verified operation. For needs_agent, use only the bounded agentContext and normal authority rules. For review_required, review only reviewContext; a review note never grants extra mutation authority."
+    queue_prompt="$queue_prompt If a mandatory review is approved, write github-projects/queue-review-result/v1 containing outcome approved and the exact reviewed context, then rerun '$queue_execute_path' for that exact target with its contract/root and --review-result. Do not invent or widen actions."
+    queue_prompt="$queue_prompt blocked and partial_failure receipts are hard stops: they may be inspected and reported, but must not be bypassed or retried through another mutation surface."
+    if [ "$queue_agent_policy" = "after" ]; then
+      queue_prompt="$queue_prompt Operator policy is after: review the deterministic receipts even when they are applied_verified; that review is read-only unless a receipt itself supplies a canonical reviewContext requiring the documented acknowledgement flow."
+    fi
+  elif [ "$queue_agent_policy" = "before" ]; then
+    queue_prompt="$queue_prompt Operator policy is before: do not run the deterministic executor first; handle only these bounded candidates under the canonical queue authority and effect-boundary rules."
   fi
 
   if [ -n "$repo_selector" ]; then
