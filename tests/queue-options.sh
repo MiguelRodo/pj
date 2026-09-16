@@ -142,6 +142,26 @@ assert_contains "$full_repo" "Restrict queue discovery to the repository selecto
 equals_repo="$(PJ_BACKEND=codex run_pj --implement-chat --repo=projects)" || exit 1
 assert_contains "$equals_repo" "Restrict queue discovery to the repository selector 'projects'"
 
+# Project and sub-project selectors are independently optional.
+project_only="$(PJ_BACKEND=codex run_pj -i --project personal)" || exit 1
+assert_contains "$project_only" "Restrict queue discovery to the Project selector 'personal'"
+assert_contains "$project_only" 'Search only open issues carrying the configured queue label'
+assert_contains "$project_only" 'combine multiple selectors by intersection'
+
+subproject_only="$(PJ_BACKEND=codex run_pj -i --subproject monitoring)" || exit 1
+assert_contains "$subproject_only" "Restrict queue discovery to the sub-project selector 'monitoring'"
+
+# Selectors compose and are passed as one intersected queue request.
+combined="$(PJ_BACKEND=codex run_pj -i --repo MiguelRodo/issues --project personal --subproject monitoring)" || exit 1
+assert_contains "$combined" "Restrict queue discovery to the repository selector 'MiguelRodo/issues'"
+assert_contains "$combined" "Restrict queue discovery to the Project selector 'personal'"
+assert_contains "$combined" "Restrict queue discovery to the sub-project selector 'monitoring'"
+
+# Equals forms are accepted for the new selectors.
+equals_scope="$(PJ_BACKEND=codex run_pj -i --project=personal --subproject=monitoring)" || exit 1
+assert_contains "$equals_scope" "Restrict queue discovery to the Project selector 'personal'"
+assert_contains "$equals_scope" "Restrict queue discovery to the sub-project selector 'monitoring'"
+
 # No selector preserves the cross-repository queue request.
 all_repos="$(PJ_BACKEND=codex run_pj --implement-issues)" || exit 1
 assert_contains "$all_repos" 'Process the Chat administration queue across the managed repositories in this workspace.'
@@ -168,6 +188,26 @@ fi
 
 if PJ_BACKEND=codex run_pj -i -r '../issues' >/dev/null 2>&1; then
   echo 'pj -i unexpectedly accepted an invalid repository selector' >&2
+  exit 1
+fi
+
+if PJ_BACKEND=codex run_pj -i --project '../personal' >/dev/null 2>&1; then
+  echo 'pj -i unexpectedly accepted an invalid Project selector' >&2
+  exit 1
+fi
+
+if PJ_BACKEND=codex run_pj -i --subproject 'monitoring/child' >/dev/null 2>&1; then
+  echo 'pj -i unexpectedly accepted an invalid sub-project selector' >&2
+  exit 1
+fi
+
+if PJ_BACKEND=codex run_pj --project personal >/dev/null 2>&1; then
+  echo 'pj unexpectedly accepted --project outside queue mode' >&2
+  exit 1
+fi
+
+if PJ_BACKEND=codex run_pj --subproject monitoring >/dev/null 2>&1; then
+  echo 'pj unexpectedly accepted --subproject outside queue mode' >&2
   exit 1
 fi
 
