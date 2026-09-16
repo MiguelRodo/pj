@@ -234,10 +234,12 @@ selectors match exact configured sub-project keys. Matching never broadens
 beyond scopes declared by local managed-project contracts, and queue discovery
 considers open issues only.
 
-Selectors reduce the queue work the agent performs after startup, but the
-launcher still starts the selected agent before queue discovery. They therefore
-do not remove the fixed model-startup and workspace/contract-loading cost of an
-otherwise empty queue run.
+Queue mode now runs the canonical `github-projects` deterministic preflight
+before starting an agent. If the selected managed scope is empty or unmatched,
+`pj` exits successfully without launching Codex, Copilot or Antigravity. When
+work exists, the preflight passes only the matching issue identities and local
+repository roots into the queue prompt so the agent does not rediscover the
+workspace. The preflight is read-only and does not establish mutation authority.
 
 Queue mode composes with other `pj`-owned options in the leading prefix:
 
@@ -247,14 +249,14 @@ pj -i -o --project personal
 pj -i --repo MiguelRodo/issues --project personal --subproject monitoring --oneshot
 ```
 
-The launcher does not implement queue discovery itself. It validates and passes
-the selectors to the agent, while the canonical matching, trust, authority,
-administrative mutation and readback rules remain in `github-projects`. The
-launcher also tells the agent to apply selectors as early as checked contracts
-allow and explicitly excludes closed issues from queue candidacy. It injects
-the no-substantive-task rule directly as defence in depth against stale
-installed skill guidance; that injected rule is effect-based, so it cannot
-re-introduce a request-type skip.
+The launcher does not implement queue discovery itself. It invokes the installed
+canonical `github-projects` preflight, while matching, trust, authority,
+administrative mutation and readback rules remain in that skill. If the
+preflight script is missing, `pj` preserves the older agent-discovery behaviour
+and tells the operator to run `pj --update-skill`. The launcher still injects
+the no-substantive-task rule directly as defence in depth against stale installed
+guidance; that rule is effect-based, so it cannot re-introduce a request-type
+skip.
 
 ## Testing
 

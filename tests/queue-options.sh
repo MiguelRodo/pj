@@ -27,10 +27,39 @@ EOF
 
 chmod +x "$tmp/bin/codex" "$tmp/bin/copilot" || exit 1
 
+cat > "$tmp/preflight" <<'EOF'
+#!/usr/bin/env bash
+case "${PJ_TEST_PREFLIGHT_STATUS:-ready}" in
+  ready)
+    printf 'status\tready\n'
+    printf 'candidate\tMiguelRodo/issues\t42\thttps://github.com/MiguelRodo/issues/issues/42\tpersonal\tmonitoring\t%s\n' "$PJ_WORKSPACE/issues_miguel"
+    ;;
+  empty)
+    printf 'status\tempty\n'
+    ;;
+  unmatched)
+    printf 'status\tunmatched\n'
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+EOF
+chmod +x "$tmp/preflight"
+
 run_pj() {
   HOME="$tmp/home" \
     PJ_WORKSPACE="$tmp/home/planning" \
     XDG_CONFIG_HOME="$tmp/home/.config" \
+    PATH="$tmp/bin:$PATH" \
+    bash "$pj" "$@"
+}
+
+run_pj_with_preflight() {
+  HOME="$tmp/home" \
+    PJ_WORKSPACE="$tmp/home/planning" \
+    XDG_CONFIG_HOME="$tmp/home/.config" \
+    PJ_QUEUE_PREFLIGHT_SCRIPT="$tmp/preflight" \
     PATH="$tmp/bin:$PATH" \
     bash "$pj" "$@"
 }
@@ -166,6 +195,25 @@ assert_contains "$equals_scope" "Restrict queue discovery to the sub-project sel
 # whether the exact managed title exists.
 project_title="$(PJ_BACKEND=codex run_pj -i --project 'Example Project')" || exit 1
 assert_contains "$project_title" "Restrict queue discovery to the Project selector 'Example Project'"
+
+# Deterministic preflight stops before backend launch when no work exists.
+empty_preflight="$(PJ_BACKEND=codex PJ_TEST_PREFLIGHT_STATUS=empty run_pj_with_preflight -i --project personal)" || exit 1
+assert_contains "$empty_preflight" 'pj: queue preflight found no matching open queue items.'
+assert_not_contains "$empty_preflight" 'codex'
+
+unmatched_preflight="$(PJ_BACKEND=copilot PJ_TEST_PREFLIGHT_STATUS=unmatched run_pj_with_preflight -i --project missing)" || exit 1
+assert_contains "$unmatched_preflight" 'pj: queue preflight matched no managed queue scope.'
+assert_not_contains "$unmatched_preflight" 'copilot'
+
+# A ready preflight bounds the agent to the exact candidate and local contract root.
+ready_preflight="$(PJ_BACKEND=codex PJ_TEST_PREFLIGHT_STATUS=ready run_pj_with_preflight -i --project personal --subproject monitoring)" || exit 1
+assert_contains "$ready_preflight" 'codex'
+assert_contains "$ready_preflight" 'Deterministic read-only preflight has already resolved the queue.'
+assert_contains "$ready_preflight" 'do not rescan the workspace or rediscover the queue'
+assert_contains "$ready_preflight" 'MiguelRodo/issues#42'
+assert_contains "$ready_preflight" "Project 'personal'"
+assert_contains "$ready_preflight" "sub-project 'monitoring'"
+assert_contains "$ready_preflight" "local repository root '$tmp/home/planning/issues_miguel'"
 
 # No selector preserves the cross-repository queue request.
 all_repos="$(PJ_BACKEND=codex run_pj --implement-issues)" || exit 1
