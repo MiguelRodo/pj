@@ -213,33 +213,48 @@ closed after independent verification. An ordinary task issue is unlabelled when
 appropriate once its administration is verified, but is not closed merely
 because its administration is complete.
 
-Pass one optional repository selector with `-r` or `--repo` to restrict queue discovery:
+Queue discovery may be narrowed independently by repository, Project and
+sub-project selectors. Repository selection keeps the existing `-r` / `--repo`
+forms; Project and sub-project selection use `--project` and `--subproject`.
+When several selectors are supplied they combine by intersection:
 
 ```bash
 pj -i -r projects
 pj -i --repo issues
-pj -i --repo example-user/projects
+pj -i --repo MiguelRodo/issues --project personal
+pj -i --project personal --subproject monitoring
+pj -i --subproject monitoring
 ```
 
-A bare selector such as `issues` matches every managed issue repository with
-that exact repository name regardless of owner. An `owner/repo` selector
-matches that exact managed repository. Matching never broadens beyond
-repositories declared by local managed-project contracts.
+A bare repository selector such as `issues` matches every managed issue
+repository with that exact repository name regardless of owner. An
+`owner/repo` selector matches that exact managed repository. Project selectors
+match exact managed Project identities from the local contracts; sub-project
+selectors match exact configured sub-project keys. Matching never broadens
+beyond scopes declared by local managed-project contracts, and queue discovery
+considers open issues only.
+
+Selectors reduce the queue work the agent performs after startup, but the
+launcher still starts the selected agent before queue discovery. They therefore
+do not remove the fixed model-startup and workspace/contract-loading cost of an
+otherwise empty queue run.
 
 Queue mode composes with other `pj`-owned options in the leading prefix:
 
 ```bash
 pj -o -i -r projects
-pj -i -o -r projects
-pj -i -r projects --oneshot
+pj -i -o --project personal
+pj -i --repo MiguelRodo/issues --project personal --subproject monitoring --oneshot
 ```
 
 The launcher does not implement queue discovery itself. It validates and passes
-the selector to the agent, while the canonical matching, trust, authority,
+the selectors to the agent, while the canonical matching, trust, authority,
 administrative mutation and readback rules remain in `github-projects`. The
-launcher also injects the no-substantive-task rule directly as defence in depth
-against stale installed skill guidance; that injected rule is effect-based, so
-it cannot re-introduce a request-type skip.
+launcher also tells the agent to apply selectors as early as checked contracts
+allow and explicitly excludes closed issues from queue candidacy. It injects
+the no-substantive-task rule directly as defence in depth against stale
+installed skill guidance; that injected rule is effect-based, so it cannot
+re-introduce a request-type skip.
 
 ## Testing
 
