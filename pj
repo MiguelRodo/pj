@@ -295,6 +295,19 @@ repo_selector=""
 project_selector=""
 subproject_selector=""
 
+set_selector_once() {
+  local variable="$1" label="$2" value="$3"
+  if [ -z "$value" ]; then
+    echo "pj: $label must not be empty" >&2
+    exit 2
+  fi
+  if [ -n "${!variable}" ]; then
+    echo "pj: $label was specified more than once" >&2
+    exit 2
+  fi
+  printf -v "$variable" '%s' "$value"
+}
+
 # Parse the contiguous pj-owned option prefix. Recognised pj options may be
 # combined in any order. The first token that is not a recognised pj option
 # ends pj-level parsing, so later dash-prefixed fragments belong to the request.
@@ -326,63 +339,30 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     -r|--repo)
-      if [ "$#" -lt 2 ]; then
-        echo "pj: $1 requires a repository selector" >&2
-        exit 2
-      fi
-      if [ -n "$repo_selector" ]; then
-        echo "pj: repository selector was specified more than once" >&2
-        exit 2
-      fi
-      repo_selector="$2"
+      [ "$#" -ge 2 ] || { echo "pj: $1 requires a repository selector" >&2; exit 2; }
+      set_selector_once repo_selector "repository selector" "$2"
       shift 2
       ;;
     --repo=*)
-      if [ -n "$repo_selector" ]; then
-        echo "pj: repository selector was specified more than once" >&2
-        exit 2
-      fi
-      repo_selector="${1#--repo=}"
+      set_selector_once repo_selector "repository selector" "${1#--repo=}"
       shift
       ;;
     --project)
-      if [ "$#" -lt 2 ]; then
-        echo "pj: --project requires a Project selector" >&2
-        exit 2
-      fi
-      if [ -n "$project_selector" ]; then
-        echo "pj: Project selector was specified more than once" >&2
-        exit 2
-      fi
-      project_selector="$2"
+      [ "$#" -ge 2 ] || { echo "pj: --project requires a Project selector" >&2; exit 2; }
+      set_selector_once project_selector "Project selector" "$2"
       shift 2
       ;;
     --project=*)
-      if [ -n "$project_selector" ]; then
-        echo "pj: Project selector was specified more than once" >&2
-        exit 2
-      fi
-      project_selector="${1#--project=}"
+      set_selector_once project_selector "Project selector" "${1#--project=}"
       shift
       ;;
     --subproject)
-      if [ "$#" -lt 2 ]; then
-        echo "pj: --subproject requires a sub-project selector" >&2
-        exit 2
-      fi
-      if [ -n "$subproject_selector" ]; then
-        echo "pj: sub-project selector was specified more than once" >&2
-        exit 2
-      fi
-      subproject_selector="$2"
+      [ "$#" -ge 2 ] || { echo "pj: --subproject requires a sub-project selector" >&2; exit 2; }
+      set_selector_once subproject_selector "sub-project selector" "$2"
       shift 2
       ;;
     --subproject=*)
-      if [ -n "$subproject_selector" ]; then
-        echo "pj: sub-project selector was specified more than once" >&2
-        exit 2
-      fi
-      subproject_selector="${1#--subproject=}"
+      set_selector_once subproject_selector "sub-project selector" "${1#--subproject=}"
       shift
       ;;
     --)
