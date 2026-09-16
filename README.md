@@ -234,12 +234,35 @@ selectors match exact configured sub-project keys. Matching never broadens
 beyond scopes declared by local managed-project contracts, and queue discovery
 considers open issues only.
 
-Queue mode now runs the canonical `github-projects` deterministic preflight
-before starting an agent. If the selected managed scope is empty or unmatched,
-`pj` exits successfully without launching Codex, Copilot or Antigravity. When
-work exists, the preflight passes only the matching issue identities and local
-repository roots into the queue prompt so the agent does not rediscover the
-workspace. The preflight is read-only and does not establish mutation authority.
+Queue mode runs the canonical `github-projects` deterministic preflight
+before model startup. If the selected managed scope is empty or unmatched,
+`pj` exits successfully without launching Codex, Copilot or Antigravity. A
+ready preflight supplies the exact candidate identity, local repository root and
+resolved contract path to the canonical queue executor; `pj` does not parse the
+contract itself.
+
+The default queue agent policy is `auto`:
+
+```bash
+pj -i --agent=auto
+pj -i --agent=before
+pj -i --agent=after
+```
+
+- `auto` runs deterministic execution first. If every candidate finishes as
+  `applied_verified`, `pj` exits without starting a model. Only
+  `needs_agent` fallback packets and mandatory `review_required` packets start
+  an agent.
+- `before` deliberately bypasses deterministic execution and gives the
+  preflight-bounded candidates to the agent.
+- `after` runs deterministic processing first and then starts the agent with
+  the exact receipts, including completed and hard-stop evidence.
+
+`blocked` and `partial_failure` receipts are not fallback authority. In
+`auto` they stop the run without model startup when no separate item needs
+agent fallback/review. If an agent is started for another item, those receipts
+may be inspected or reported but their mutations must not be silently retried
+through another surface.
 
 Queue mode composes with other `pj`-owned options in the leading prefix:
 
@@ -247,16 +270,18 @@ Queue mode composes with other `pj`-owned options in the leading prefix:
 pj -o -i -r projects
 pj -i -o --project personal
 pj -i --repo MiguelRodo/issues --project personal --subproject monitoring --oneshot
+pj -i --agent=auto --repo MiguelRodo/issues --project personal --subproject monitoring
 ```
 
-The launcher does not implement queue discovery itself. It invokes the installed
-canonical `github-projects` preflight, while matching, trust, authority,
-administrative mutation and readback rules remain in that skill. If the
-preflight script is missing, `pj` preserves the older agent-discovery behaviour
-and tells the operator to run `pj --update-skill`. The launcher still injects
-the no-substantive-task rule directly as defence in depth against stale installed
-guidance; that rule is effect-based, so it cannot re-introduce a request-type
-skip.
+The launcher remains orchestration-only. It invokes the installed canonical
+`github-projects` preflight and executor; matching, trust, authority, contract
+interpretation, administrative mutations, mandatory item review and independent
+readback remain in that skill. If the preflight or deterministic executor is
+missing, `pj` preserves bounded agent processing and tells the operator to run
+`pj --update-skill` instead of guessing those semantics locally. The launcher
+still injects the no-substantive-task rule directly as defence in depth against
+stale installed guidance; that rule is effect-based, so it cannot re-introduce
+a request-type skip.
 
 ## Testing
 

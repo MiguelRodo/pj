@@ -32,7 +32,7 @@ cat > "$tmp/preflight" <<'EOF'
 case "${PJ_TEST_PREFLIGHT_STATUS:-ready}" in
   ready)
     printf 'status\tready\n'
-    printf 'candidate\tMiguelRodo/issues\t42\thttps://github.com/MiguelRodo/issues/issues/42\tpersonal\tmonitoring\t%s\n' "$PJ_WORKSPACE/issues_miguel"
+    printf 'candidate\tMiguelRodo/issues\t42\thttps://github.com/MiguelRodo/issues/issues/42\tpersonal\tmonitoring\t%s\t%s\n' "$PJ_WORKSPACE/issues_miguel" "$PJ_WORKSPACE/issues_miguel/.projects/projects/personal.md"
     ;;
   empty)
     printf 'status\tempty\n'
@@ -47,6 +47,48 @@ esac
 EOF
 chmod +x "$tmp/preflight"
 
+cat > "$tmp/executor.py" <<'EOF'
+#!/usr/bin/env python3
+import json
+import os
+import sys
+
+status = os.environ.get("PJ_TEST_EXECUTE_STATUS") or "applied_verified"
+log = os.environ.get("PJ_TEST_EXECUTE_LOG")
+if log:
+    with open(log, "a", encoding="utf-8") as handle:
+        handle.write("called\n")
+if status == "fail":
+    raise SystemExit(9)
+
+receipt = {
+    "status": status,
+    "target": {"repository": "MiguelRodo/issues", "issue": 42},
+    "classification": {"classification": "deterministic", "reason": "queue.ready.structured"},
+    "planned": [],
+    "operations": [],
+    "remaining": [],
+    "review": None,
+}
+if status == "needs_agent":
+    receipt["agentContext"] = {
+        "apiVersion": "github-projects/queue-agent-context/v1",
+        "target": {"repository": "MiguelRodo/issues", "issue": 42},
+    }
+elif status == "review_required":
+    receipt["reviewContext"] = {
+        "apiVersion": "github-projects/queue-review-context/v1",
+        "target": {"repository": "MiguelRodo/issues", "issue": 42},
+    }
+elif status == "partial_failure":
+    receipt["reason"] = "queue.execute.field_mutation_failed"
+elif status == "blocked":
+    receipt["reason"] = "queue.blocked.authentication"
+
+print(json.dumps(receipt, separators=(",", ":"), sort_keys=True))
+EOF
+chmod +x "$tmp/executor.py"
+
 run_pj() {
   HOME="$tmp/home" \
     PJ_WORKSPACE="$tmp/home/planning" \
@@ -60,6 +102,9 @@ run_pj_with_preflight() {
     PJ_WORKSPACE="$tmp/home/planning" \
     XDG_CONFIG_HOME="$tmp/home/.config" \
     PJ_QUEUE_PREFLIGHT_SCRIPT="$tmp/preflight" \
+    PJ_QUEUE_EXECUTE_SCRIPT="${PJ_QUEUE_EXECUTE_SCRIPT:-}" \
+    PJ_TEST_EXECUTE_STATUS="${PJ_TEST_EXECUTE_STATUS:-}" \
+    PJ_TEST_EXECUTE_LOG="${PJ_TEST_EXECUTE_LOG:-}" \
     PATH="$tmp/bin:$PATH" \
     bash "$pj" "$@"
 }
@@ -214,6 +259,59 @@ assert_contains "$ready_preflight" 'MiguelRodo/issues#42'
 assert_contains "$ready_preflight" "Project 'personal'"
 assert_contains "$ready_preflight" "sub-project 'monitoring'"
 assert_contains "$ready_preflight" "local repository root '$tmp/home/planning/issues_miguel'"
+assert_contains "$ready_preflight" "resolved contract '$tmp/home/planning/issues_miguel/.projects/projects/personal.md'"
+
+# Default auto policy executes deterministic items before model startup.
+deterministic_auto="$(PJ_QUEUE_EXECUTE_SCRIPT="$tmp/executor.py" PJ_TEST_EXECUTE_STATUS=applied_verified PJ_BACKEND=codex run_pj_with_preflight -i --project personal --subproject monitoring)" || exit 1
+assert_contains "$deterministic_auto" 'pj: deterministic queue completed 1 candidate(s); no agent required.'
+assert_not_contains "$deterministic_auto" 'codex'
+
+# needs_agent is the capability fallback path: only the bounded receipt reaches
+# the agent after deterministic processing.
+needs_agent_auto="$(PJ_QUEUE_EXECUTE_SCRIPT="$tmp/executor.py" PJ_TEST_EXECUTE_STATUS=needs_agent PJ_BACKEND=codex run_pj_with_preflight -i --agent=auto --project personal)" || exit 1
+assert_contains "$needs_agent_auto" 'codex'
+assert_contains "$needs_agent_auto" 'Canonical deterministic processing has already run with queue agent policy'
+assert_contains "$needs_agent_auto" 'github-projects/queue-agent-context/v1'
+assert_contains "$needs_agent_auto" 'work only on the explicitly escalated needs_agent or review_required receipts'
+
+# Mandatory item review is distinct from fallback but still starts an agent in
+# auto mode, with the review packet and resume instruction.
+review_auto="$(PJ_QUEUE_EXECUTE_SCRIPT="$tmp/executor.py" PJ_TEST_EXECUTE_STATUS=review_required PJ_BACKEND=copilot run_pj_with_preflight -i --agent auto --project personal)" || exit 1
+assert_contains "$review_auto" 'copilot'
+assert_contains "$review_auto" 'github-projects/queue-review-context/v1'
+assert_contains "$review_auto" 'queue-review-result/v1'
+assert_contains "$review_auto" '--review-result'
+
+# Blocked/partial deterministic receipts are hard stops, never mutation fallback.
+set +e
+blocked_auto="$(PJ_QUEUE_EXECUTE_SCRIPT="$tmp/executor.py" PJ_TEST_EXECUTE_STATUS=blocked PJ_BACKEND=codex run_pj_with_preflight -i --project personal 2>&1)"
+blocked_status=$?
+set -e
+if [ "$blocked_status" -eq 0 ]; then
+  echo 'pj -i unexpectedly treated a blocked deterministic receipt as success' >&2
+  exit 1
+fi
+assert_contains "$blocked_auto" 'no agent retry was attempted'
+assert_contains "$blocked_auto" '"status":"blocked"'
+assert_not_contains "$blocked_auto" 'codex'
+
+# before deliberately bypasses the deterministic executor and sends only the
+# already-bounded preflight candidates to the agent.
+rm -f "$tmp/executor.log"
+before_agent="$(PJ_QUEUE_EXECUTE_SCRIPT="$tmp/executor.py" PJ_TEST_EXECUTE_STATUS=fail PJ_TEST_EXECUTE_LOG="$tmp/executor.log" PJ_BACKEND=codex run_pj_with_preflight -i --agent=before --project personal)" || exit 1
+assert_contains "$before_agent" 'codex'
+if [ -s "$tmp/executor.log" ]; then
+  echo 'pj --agent=before unexpectedly invoked the deterministic executor' >&2
+  exit 1
+fi
+
+# after always starts the agent after deterministic processing and passes the
+# exact receipt, even when the item already completed.
+after_agent="$(PJ_QUEUE_EXECUTE_SCRIPT="$tmp/executor.py" PJ_TEST_EXECUTE_STATUS=applied_verified PJ_BACKEND=codex run_pj_with_preflight -i --agent after --project personal)" || exit 1
+assert_contains "$after_agent" 'codex'
+assert_contains "$after_agent" 'Because --agent=after was requested'
+assert_contains "$after_agent" '"status":"applied_verified"'
+assert_contains "$after_agent" 'completed and hard-stop receipts remain non-mutation evidence'
 
 # No selector preserves the cross-repository queue request.
 all_repos="$(PJ_BACKEND=codex run_pj --implement-issues)" || exit 1
@@ -266,6 +364,16 @@ fi
 
 if PJ_BACKEND=codex run_pj --subproject monitoring >/dev/null 2>&1; then
   echo 'pj unexpectedly accepted --subproject outside queue mode' >&2
+  exit 1
+fi
+
+if PJ_BACKEND=codex run_pj --agent auto >/dev/null 2>&1; then
+  echo 'pj unexpectedly accepted --agent outside queue mode' >&2
+  exit 1
+fi
+
+if PJ_BACKEND=codex run_pj -i --agent sometimes >/dev/null 2>&1; then
+  echo 'pj unexpectedly accepted an invalid queue agent policy' >&2
   exit 1
 fi
 
