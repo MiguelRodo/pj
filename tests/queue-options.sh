@@ -110,6 +110,7 @@ run_pj_with_queue_scripts() {
     PJ_QUEUE_PREFLIGHT_SCRIPT="$tmp/preflight" \
     PJ_QUEUE_EXECUTE_SCRIPT="$tmp/executor" \
     PJ_TEST_EXECUTOR_LOG="$tmp/executor.log" \
+    PJ_TEST_EXECUTOR_STATUS="${PJ_TEST_EXECUTOR_STATUS:-applied_verified}" \
     PATH="$tmp/bin:$PATH" \
     bash "$pj" "$@"
 }
@@ -264,6 +265,70 @@ assert_contains "$ready_preflight" 'MiguelRodo/issues#42'
 assert_contains "$ready_preflight" "Project 'personal'"
 assert_contains "$ready_preflight" "sub-project 'monitoring'"
 assert_contains "$ready_preflight" "local repository root '$tmp/home/planning/issues_miguel'"
+assert_contains "$ready_preflight" "resolved contract '$tmp/home/planning/issues_miguel/.projects/projects/personal.md'"
+
+# Default auto mode executes deterministic items without starting a model.
+: >"$tmp/executor.log"
+auto_done="$(PJ_BACKEND=codex PJ_TEST_EXECUTOR_STATUS=applied_verified run_pj_with_queue_scripts -i --project personal)" || exit 1
+assert_contains "$auto_done" "queue item MiguelRodo/issues#42: applied_verified"
+assert_contains "$auto_done" "deterministic queue administration completed without starting an agent"
+assert_not_contains "$auto_done" "codex"
+grep -Fq -- "--contract $tmp/home/planning/issues_miguel/.projects/projects/personal.md --root $tmp/home/planning/issues_miguel --repository MiguelRodo/issues --issue 42" "$tmp/executor.log"
+
+# Capability fallback and mandatory review start one bounded agent with receipts.
+: >"$tmp/executor.log"
+needs_agent="$(PJ_BACKEND=codex PJ_TEST_EXECUTOR_STATUS=needs_agent run_pj_with_queue_scripts -i --project personal)" || exit 1
+assert_contains "$needs_agent" "queue item MiguelRodo/issues#42: needs_agent"
+assert_contains "$needs_agent" "codex"
+assert_contains "$needs_agent" "Deterministic queue processing has already run"
+assert_contains "$needs_agent" "For needs_agent, use only the bounded agentContext"
+
+: >"$tmp/executor.log"
+review_agent="$(PJ_BACKEND=codex PJ_TEST_EXECUTOR_STATUS=review_required run_pj_with_queue_scripts -i --project personal)" || exit 1
+assert_contains "$review_agent" "queue item MiguelRodo/issues#42: review_required"
+assert_contains "$review_agent" "review only reviewContext"
+assert_contains "$review_agent" "queue-review-result/v1"
+
+# Operator before skips deterministic execution; after always reviews receipts.
+: >"$tmp/executor.log"
+before_agent="$(PJ_BACKEND=codex PJ_TEST_EXECUTOR_STATUS=applied_verified run_pj_with_queue_scripts -i --queue-agent before --project personal)" || exit 1
+assert_contains "$before_agent" "codex"
+assert_contains "$before_agent" "Operator policy is before"
+[ ! -s "$tmp/executor.log" ] || { echo "before policy unexpectedly ran executor" >&2; exit 1; }
+
+: >"$tmp/executor.log"
+after_agent="$(PJ_BACKEND=codex PJ_TEST_EXECUTOR_STATUS=applied_verified run_pj_with_queue_scripts --queue-agent=after -i --project personal)" || exit 1
+assert_contains "$after_agent" "codex"
+assert_contains "$after_agent" "Operator policy is after"
+[ -s "$tmp/executor.log" ] || { echo "after policy did not run executor" >&2; exit 1; }
+
+# Hard deterministic failures are not offered to an agent as retry authority.
+: >"$tmp/executor.log"
+set +e
+blocked_output="$(PJ_BACKEND=codex PJ_TEST_EXECUTOR_STATUS=blocked run_pj_with_queue_scripts -i --project personal 2>&1)"
+blocked_status=$?
+set -e
+[ "$blocked_status" -ne 0 ] || { echo "blocked queue unexpectedly succeeded" >&2; exit 1; }
+assert_contains "$blocked_output" "queue item MiguelRodo/issues#42: blocked"
+assert_contains "$blocked_output" "deterministic queue processing stopped on a hard failure"
+assert_not_contains "$blocked_output" "codex"
+
+# Old preflight output falls back safely rather than guessing the contract.
+: >"$tmp/executor.log"
+old_preflight="$(PJ_BACKEND=codex PJ_TEST_PREFLIGHT_STATUS=oldready run_pj_with_queue_scripts -i --project personal 2>&1)" || exit 1
+assert_contains "$old_preflight" "queue preflight is too old for deterministic execution"
+assert_contains "$old_preflight" "codex"
+[ ! -s "$tmp/executor.log" ] || { echo "old preflight unexpectedly ran executor" >&2; exit 1; }
+
+# Queue agent policy is queue-only and closed to unknown values.
+if PJ_BACKEND=codex run_pj --queue-agent after >/dev/null 2>&1; then
+  echo "pj unexpectedly accepted --queue-agent outside queue mode" >&2
+  exit 1
+fi
+if PJ_BACKEND=codex run_pj -i --queue-agent never >/dev/null 2>&1; then
+  echo "pj unexpectedly accepted an invalid queue agent policy" >&2
+  exit 1
+fi
 
 # No selector preserves the cross-repository queue request.
 all_repos="$(PJ_BACKEND=codex run_pj --implement-issues)" || exit 1
