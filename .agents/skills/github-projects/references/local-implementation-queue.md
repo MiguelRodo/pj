@@ -50,6 +50,16 @@ For a temporary handoff:
 
 A temporary Project-administration handoff is not a mirror of the underlying task and should not be added to the GitHub Project merely because it exists.
 
+### Structured authority when the creator knows the delta
+
+When the creating surface has already resolved the exact target and bounded administrative delta, prefer the versioned [structured queue authority envelope](queue-authority-envelope.md) inside the qualifying `PJ implementation authority:` comment. The structured form lets later local processing validate routine administration without asking an agent to reinterpret prose.
+
+This is not a requirement for humans to create queue items. Existing natural-language authority comments, hand-written issues and older queue records remain valid queue input. If they cannot be processed deterministically, pass the bounded candidate to the agent under the fallback rules instead of treating the formatting difference as a queue failure.
+
+When an operator explicitly wants to migrate existing issues so routine administration is deterministic, follow [the pj queue migration guide](pj-queue-migration.md). It gives the agent-facing batch procedure, current deterministic action subset and copyable authority template without changing the ordinary issue body into an execution record.
+
+The structured envelope never weakens the authority model in this reference. Its comment must still qualify under the applicable solo, collaborative or temporary-handoff rule, and its actions remain constrained by the administrative-only effect boundary, fresh state and independent readback.
+
 ## Existing task issues as queue items
 
 An existing task issue is an ordinary work item, not a command. Its title and body describe the work the task represents and routinely use imperative prose such as "Build a sealed validation corpus", "Measure production upload volume", "Suppress redundant uploads" or "Fix the parser". That prose is a task description. It is not queue execution authority, and it must never cause the issue's administrative work to be skipped.
@@ -158,6 +168,179 @@ For every selector:
 - A selector narrows discovery only; it does not change queue authority, trust, effect boundaries or completion rules.
 
 When no selector is supplied, retain the ordinary cross-repository behaviour above.
+
+### Deterministic preflight
+
+Before launching an agent for local queue processing, a caller may run
+`scripts/queue-preflight.sh --workspace WORKSPACE` with the same optional
+`--repo`, `--project` and `--subproject` selectors. The preflight is read-only:
+it validates managed local contracts, derives only contract-declared routing and
+sub-project labels, and lists matching open queue issues without creating labels
+or changing GitHub state.
+
+Its tab-separated output begins with exactly one status row:
+
+- `status ready`: one or more following `candidate` rows identify the bounded
+  queue items, resolved Project/sub-project scope, local repository root and exact
+  resolved contract path;
+- `status empty`: managed scope matched but no open queue issue matched;
+- `status unmatched`: the selector combination matched no managed queue scope.
+
+A caller should avoid model startup for `empty` and `unmatched`. For `ready`,
+pass the candidate identities to the agent so it can apply the authority,
+administrative-only, stale-state and independent-readback rules below without
+rediscovering the workspace. Preflight discovery itself never establishes
+mutation authority.
+
+
+### Deterministic classification
+
+After preflight has bounded one candidate and resolved its checked Project contract, `scripts/queue-classify.py` may classify that item without mutation:
+
+```bash
+python3 scripts/queue-classify.py \
+  --contract /path/to/resolved/project.md \
+  --repository owner/issues \
+  --issue 42
+```
+
+It emits one JSON object:
+
+- `deterministic`: trusted structured authority and the currently supported deterministic action subset;
+- `needs_agent`: legitimate queue work that needs interpretation or an unsupported deterministic operation;
+- `blocked`: fresh provider, target or authority state makes automatic continuation unsafe.
+
+Format quality alone is never a blocker. Missing structured authority, legacy prose, malformed JSON, edited authority, unsupported deterministic actions and contract values that require interpretation use `needs_agent`. Authentication/provider failures, a closed or de-queued candidate, and target/Project mismatch use `blocked`.
+
+Stable v1 reasons are:
+
+| Outcome | Reason |
+| --- | --- |
+| deterministic | `queue.ready.structured` |
+| needs_agent | `queue.agent.structured_authority_missing` |
+| needs_agent | `queue.agent.legacy_authority` |
+| needs_agent | `queue.agent.envelope_malformed` |
+| needs_agent | `queue.agent.envelope_invalid` |
+| needs_agent | `queue.agent.version_unsupported` |
+| needs_agent | `queue.agent.authority_edited` |
+| needs_agent | `queue.agent.authority_untrusted` |
+| needs_agent | `queue.agent.action_not_deterministic` |
+| needs_agent | `queue.agent.value_not_in_contract` |
+| needs_agent | `queue.agent.parent_not_deterministic` |
+| blocked | `queue.blocked.authentication` |
+| blocked | `queue.blocked.provider_read` |
+| blocked | `queue.blocked.contract_unavailable` |
+| blocked | `queue.blocked.contract_invalid` |
+| blocked | `queue.blocked.issue_not_open` |
+| blocked | `queue.blocked.queue_label_missing` |
+| blocked | `queue.blocked.target_mismatch` |
+| blocked | `queue.blocked.project_mismatch` |
+
+The initial deterministic subset is deliberately small: Project membership add, Class/Priority/Status set, and exact parent set. Other v1 actions fall back to an agent until #179 provides a verified deterministic executor. An explicit item-level review directive remains attached to a `deterministic` result; it is not parser fallback.
+
+### Deterministic execution and receipts
+
+A `deterministic` classification may be passed to `scripts/queue-execute.py`. The executor reuses the classifier rather than parsing authority independently, and executes only the classifier-supported actions.
+
+The executor prefers the tested `projects` CLI for Project membership, Project field values and queue-completion issue edits. Native parent relationships use the documented GitHub sub-issue endpoint because the CLI does not support them. An operational failure is never retried through another mutation surface.
+
+Before each write, the owning operation performs a fresh target-centred read. Every successful mutation requires independent readback. The executor checks the issue baseline immediately before the completion comment and checks it again immediately before queue-label/state completion; Project field mutations rely on the CLI's own unrelated-field preservation check.
+
+The one-line JSON receipt contains:
+
+- `status`: overall `applied_verified`, `partial_failure`, `needs_agent`, `blocked` or `review_required`;
+- `target`, the exact repository and issue;
+- the classifier outcome and original planned actions;
+- `operations`, each with `applied_verified`, `no_change`, `read_failed`, `mutation_failed` or `verification_failed`;
+- `remaining`, the authorised actions not yet verified when execution stops;
+- `agentContext` only when the final outcome is `needs_agent`, containing the bounded exact-target fallback handoff described below;
+- `reviewContext` only when a mandatory item-level review is ready for an agent, keeping review separate from fallback;
+- `preservation` when independent preservation checks completed;
+- `completion` when the completion comment and queue-label/state mutation were attempted;
+- the original item-level `review` directive for later agent review.
+
+A `before` review directive produces `review_required` and zero writes. An `after` directive allows the deterministic administrative actions and independent readback to run first, then produces `review_required` with `completion.status=pending_review`. While after-review is pending, the queue label remains and a temporary handoff remains open. The review packet includes the verified execution receipt so the agent reviews what actually happened.
+
+Queue completion happens only after every authorised operation, preservation check and mandatory item-level review succeeds. Without pending review, the executor writes one concise verified-administration comment, removes the queue label, and closes the issue only for `temporary_handoff`. An `existing_task` remains open.
+
+Stable executor reasons include:
+
+| Reason | Meaning |
+| --- | --- |
+| `queue.execute.classifier_failed` | classifier did not produce usable JSON |
+| `queue.execute.before_review_required` | explicit item review must happen before writes |
+| `queue.execute.after_review_required` | deterministic writes verified; explicit review is required before queue completion |
+| `queue.execute.review_context_failed` | required review could not be packaged safely; do not bypass it |
+| `queue.execute.review_result_invalid` | supplied review approval does not match the current target, authority or required review |
+| `queue.execute.projects_unavailable` | deterministic CLI backend is unavailable |
+| `queue.execute.plan_conflict` | the deterministic plan repeats a singleton action or dimension and needs interpretation |
+| `queue.execute.agent_context_failed` | a safe bounded agent handoff could not be prepared, so fallback is blocked |
+| `queue.execute.contract_unavailable` / `queue.execute.contract_invalid` | checked local contract cannot be used |
+| `queue.execute.baseline_read_failed` / `queue.execute.baseline_state_changed` | fresh pre-write issue state is unavailable or no longer queue-eligible |
+| `queue.execute.membership_failed` | verified Project membership addition failed |
+| `queue.execute.field_binding_not_deterministic` | requested dimension is not on the supported Project-field path |
+| `queue.execute.field_plan_failed` / `queue.execute.field_mutation_failed` | Project field inspection or verified mutation failed |
+| `queue.execute.parent_failed` | native parent mutation or readback failed |
+| `queue.execute.completion_read_failed` / `queue.execute.completion_state_changed` | fresh state before queue completion is unavailable or changed |
+| `queue.execute.preservation_failed` | unrelated issue state changed before completion |
+| `queue.execute.comment_failed` | verified completion comment failed |
+| `queue.execute.completion_failed` | queue label/state completion failed |
+
+A partial receipt is evidence, not permission to retry. Leave the queue item visible and re-inspect live state before any recovery.
+
+### Mandatory item review and operator policy
+
+A structured review directive is creator intent on an otherwise deterministic item. It is not a `needs_agent` classification and does not grant any mutation beyond `spec.actions`.
+
+The executor emits a versioned `github-projects/queue-review-context/v1` packet when item review is due. It carries the exact bounded target context, timing, requested focus selectors, optional note, the original authorised actions and `noteMayAuthoriseMutations=false`. An `after` packet additionally embeds the verified deterministic execution receipt. Review notes are data to inspect, never additional authority.
+
+Queue-level launcher policy combines with item review rather than replacing it:
+
+- `auto` adds no operator-forced review and preserves any item-level `before` or `after` requirement;
+- `before` forces a bounded before-review for every selected candidate;
+- `after` forces a bounded after-review for every selected candidate;
+- if operator policy and item timing differ, both reviews are required. For example, item `before` plus operator `after` means before-review, deterministic execution, then after-review.
+
+This precedence means a launcher can request more agent involvement but cannot suppress, move or weaken creator-required review. The `github-projects` skill exposes this policy resolution for the `pj` launcher; launcher integration itself remains in `MiguelRodo/pj`.
+
+Unknown review timing/focus values do not become review packets. They fail deterministic envelope validation and use the ordinary safe fallback path. A review note that asks for an extra mutation likewise does not broaden `authorisedActions`; any revised administrative delta needs fresh normal authority.
+
+After a reviewer approves a mandatory item review, the trusted launcher returns a `github-projects/queue-review-result/v1` object containing `outcome: approved` and the exact `reviewContext` that was reviewed. The deterministic executor accepts that result only when its target, authorised actions, timing, focus, note and policy still match the freshly classified item. For `after` review, the embedded execution receipt must also be a matching `applied_verified` receipt with no remaining actions and `completion.status=pending_review`.
+
+The executor accepts this approval through its local `--review-result FILE` handoff. A valid before-review approval allows deterministic execution to continue. A valid after-review approval allows a fresh idempotent readback/execution pass and then the previously withheld queue completion. Invalid, stale or mismatched approval never suppresses the mandatory review: the item remains `review_required` with `queue.execute.review_result_invalid`.
+
+A review result is an acknowledgement that the requested review occurred, not new mutation authority. A rejected or concern-raising review should not produce an `approved` result; leave the queue item visible and resolve the concern under normal authority rules.
+
+### Agent escalation and legacy fallback
+
+Agent fallback is an ordinary continuation for a final `needs_agent` outcome. It is not a recovery path for `blocked` or `partial_failure`, and it is distinct from an explicit item-level review request.
+
+For `needs_agent`, the executor attaches `agentContext` using the versioned `github-projects/queue-agent-context/v1` shape. The handoff is read-only and bounded to one already-resolved candidate. It contains:
+
+- the exact repository/issue target and checked local contract path/root;
+- the classifier or executor reason that caused fallback;
+- the authenticated GitHub login used for the queue decision;
+- a fresh issue snapshot limited to title, bounded body, state, labels, assignees, milestone and author;
+- the resolved Project/queue identity from the checked contract;
+- at most the 20 latest comments beginning with `PJ implementation authority:`, with bounded bodies, author/edit timestamps and explicit truncation metadata;
+- an explicit `github_issue_project_administration_only` effect boundary.
+
+If bounded text was truncated and is material to interpretation, the agent may re-read only that exact issue/comment. The agent may also re-read that exact issue and exact checked contract when stale state must be verified before a write. It should not rediscover the workspace, broaden to unrelated repositories/Projects, or treat other accessible data as implicit authority. The handoff exists to eliminate that discovery step.
+
+Classifier `needs_agent` reasons are fallback-eligible, including legacy or missing structured authority, malformed/unsupported envelopes that remain human-interpretable, edited/untrusted authority requiring operator judgement, unsupported deterministic actions, contract values needing interpretation and non-deterministic parent requests. Executor-level `needs_agent` reasons such as an unavailable `projects` backend, a conflicting otherwise-valid plan, or a field location outside the deterministic executor are handled the same way.
+
+A `blocked` classifier result is never converted into agent fallback. Authentication/provider failures, invalid checked contracts, closed/de-queued targets and target/Project mismatches remain hard stops. Likewise, once a deterministic mutation has partially failed or cannot be independently verified, an agent may inspect the receipt but must not silently retry the mutation through another surface. If the bounded handoff itself cannot be built, return `queue.execute.agent_context_failed` as `blocked`.
+
+Structured and legacy items may coexist indefinitely. A legacy or hand-written item does not need to be rewritten merely to enter fallback. After interpretation, an agent may describe a normalised structured plan in its report when useful, but must not add or alter authority merely to make the item machine-readable.
+
+For mixed queues, process each candidate independently:
+
+- complete deterministic candidates without launching an agent;
+- collect only `needs_agent` candidates as bounded handoff packets for agent work;
+- leave `blocked` and partial-failure candidates visible with their reason/receipt and do not include them as fallback mutation tasks;
+- preserve candidate identity and authority independently even if several handoffs are reviewed in one agent session.
+
+`needs_agent` is therefore a capability fallback. A structured `review.timing=before|after` directive is creator intent on an otherwise deterministic item and remains a separate path governed by #181. A launcher must not collapse the two concepts into one generic “use the agent” state.
 
 ## Trusted administrative items
 

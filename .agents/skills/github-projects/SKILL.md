@@ -5,7 +5,7 @@ metadata:
     github-pinned: main
     github-ref: refs/heads/main
     github-repo: https://github.com/MiguelRodo/github-projects-skill
-    github-tree-sha: 11a8644549d1525752c0fadbd8da12141cb039de
+    github-tree-sha: b8414e9058cc097a1d8d4f4f87a80566e6deb3f0
 name: github-projects
 ---
 # GitHub Project administration
@@ -104,6 +104,10 @@ If the current surface cannot perform an authorised GitHub issue or Project muta
 The queue is administrative-only by effect. It constrains the results the local agent may produce, not the tooling it may use: the `projects` CLI, `gh`, REST, GraphQL and shell or Python helpers all remain available for GitHub administration. Never use the queue to authorise repository implementation, file edits, implementation tests, measurement or analysis work, branches or pull requests.
 
 A labelled existing task issue is a valid reconciliation target. Its ordinary imperative prose describes the work the task represents and never causes the issue's administrative work to be skipped: apply the bounded administrative instruction and leave the substantive work untouched. In a resolved contract that establishes solo administration, the label plus a matching issue author are sufficient authority. In collaborative or shared governance, and whenever governance is missing or ambiguous, the issue body is mutable collaborative text, so require an unedited `PJ implementation authority:` comment from the account currently authenticated in local `gh` that states the administrative delta itself. A temporary handoff or an unusual, explicit mutation always needs that comment. Report the mutation as queued, not completed.
+
+When this surface already knows the exact bounded administrative delta, prefer adding the versioned structured authority comment in [the queue authority envelope reference](references/queue-authority-envelope.md), including in solo governance where a separate prose authority comment would not otherwise be required. This front-loads interpretation for deterministic local execution without broadening authority. It is an optimisation, not a requirement for ordinary human-authored or legacy queue items; unstructured items remain valid queue input and fall back to an agent when deterministic processing cannot interpret them safely.
+
+When asked to prepare or migrate existing issues specifically for deterministic `pj -i` handling, follow [the pj queue migration guide](references/pj-queue-migration.md). Keep the ordinary issue prose intact, use only the executor's current deterministic action subset, and put the machine-checkable administrative delta in a new structured authority comment.
 
 If the local queue is not configured or cannot be created safely, return the smallest executable command block that completes the operation. Use placeholders only for facts that cannot be discovered. Do not claim that returned commands ran.
 
