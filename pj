@@ -291,6 +291,10 @@ esac
 
 queue_mode=0
 queue_flag=""
+queue_agent_policy="auto"
+queue_agent_policy_set=0
+queue_receipt_dir=""
+queue_force_failure=0
 repo_selector=""
 project_selector=""
 subproject_selector=""
@@ -306,6 +310,21 @@ set_selector_once() {
     exit 2
   fi
   printf -v "$variable" '%s' "$value"
+}
+
+set_queue_agent_policy() {
+  if [ "$queue_agent_policy_set" -eq 1 ]; then
+    echo "pj: --queue-agent was specified more than once" >&2
+    exit 2
+  fi
+  case "$1" in
+    auto|before|after) queue_agent_policy="$1" ;;
+    *)
+      echo "pj: --queue-agent must be auto, before or after" >&2
+      exit 2
+      ;;
+  esac
+  queue_agent_policy_set=1
 }
 
 # Parse the contiguous pj-owned option prefix. Recognised pj options may be
@@ -336,6 +355,15 @@ while [ "$#" -gt 0 ]; do
       fi
       queue_mode=1
       queue_flag="$1"
+      shift
+      ;;
+    --queue-agent)
+      [ "$#" -ge 2 ] || { echo "pj: --queue-agent requires auto, before or after" >&2; exit 2; }
+      set_queue_agent_policy "$2"
+      shift 2
+      ;;
+    --queue-agent=*)
+      set_queue_agent_policy "${1#--queue-agent=}"
       shift
       ;;
     -r|--repo)
@@ -437,6 +465,10 @@ if { [ -n "$project_selector" ] || [ -n "$subproject_selector" ]; } && [ "$queue
   exit 2
 fi
 
+if [ "$queue_agent_policy_set" -eq 1 ] && [ "$queue_mode" -eq 0 ]; then
+  echo "pj: --queue-agent is only valid with -i, --implement-issues or --implement-chat" >&2
+  exit 2
+fi
 queue_preflight_script() {
   if [ -n "${PJ_QUEUE_PREFLIGHT_SCRIPT:-}" ]; then
     [ -f "$PJ_QUEUE_PREFLIGHT_SCRIPT" ] || return 1
