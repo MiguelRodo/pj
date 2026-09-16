@@ -469,6 +469,28 @@ if [ "$queue_agent_policy_set" -eq 1 ] && [ "$queue_mode" -eq 0 ]; then
   echo "pj: --queue-agent is only valid with -i, --implement-issues or --implement-chat" >&2
   exit 2
 fi
+if [ "$queue_mode" -eq 1 ]; then
+  if [ "$#" -gt 0 ]; then
+    echo "pj: $queue_flag does not take prompt or agent arguments; unexpected argument: $1" >&2
+    exit 2
+  fi
+  if [ -n "$repo_selector" ] && ! valid_repo_selector "$repo_selector"; then
+    echo "pj: invalid repository selector: $repo_selector" >&2
+    echo "pj: use REPO or OWNER/REPO" >&2
+    exit 2
+  fi
+  if [ -n "$project_selector" ] && ! valid_scope_selector "$project_selector"; then
+    echo "pj: invalid Project selector: $project_selector" >&2
+    echo "pj: use an exact managed Project key or single-Project title" >&2
+    exit 2
+  fi
+  if [ -n "$subproject_selector" ] && ! valid_scope_selector "$subproject_selector"; then
+    echo "pj: invalid sub-project selector: $subproject_selector" >&2
+    echo "pj: use an exact configured sub-project key" >&2
+    exit 2
+  fi
+fi
+
 queue_skill_script() {
   local override="$1" name="$2" candidate
   if [ -n "$override" ]; then
@@ -634,11 +656,6 @@ fi
 # github-projects owns matching, queue discovery, trust checks,
 # Project resolution, mutations and independent readback.
 if [ "$queue_mode" -eq 1 ]; then
-  if [ "$#" -gt 0 ]; then
-    echo "pj: $queue_flag does not take prompt or agent arguments; unexpected argument: $1" >&2
-    exit 2
-  fi
-
   # The administrative boundary is an effect boundary, not a request-type
   # filter. Word the prompt so that imperative task prose cannot be read as
   # queue execution authority, and so the launcher does not invent an authority
@@ -688,29 +705,14 @@ if [ "$queue_mode" -eq 1 ]; then
   fi
 
   if [ -n "$repo_selector" ]; then
-    if ! valid_repo_selector "$repo_selector"; then
-      echo "pj: invalid repository selector: $repo_selector" >&2
-      echo "pj: use REPO or OWNER/REPO" >&2
-      exit 2
-    fi
     queue_prompt="$queue_prompt Restrict queue discovery to the repository selector '$repo_selector' using the selector rules in local-implementation-queue.md; do not scan non-matching managed repositories."
   fi
 
   if [ -n "$project_selector" ]; then
-    if ! valid_scope_selector "$project_selector"; then
-      echo "pj: invalid Project selector: $project_selector" >&2
-      echo "pj: use an exact managed Project key or single-Project title" >&2
-      exit 2
-    fi
     queue_prompt="$queue_prompt Restrict queue discovery to the Project selector '$project_selector' using the exact managed Project matching rules in local-implementation-queue.md."
   fi
 
   if [ -n "$subproject_selector" ]; then
-    if ! valid_scope_selector "$subproject_selector"; then
-      echo "pj: invalid sub-project selector: $subproject_selector" >&2
-      echo "pj: use an exact configured sub-project key" >&2
-      exit 2
-    fi
     queue_prompt="$queue_prompt Restrict queue discovery to the sub-project selector '$subproject_selector' using the configured sub-project vocabulary rules in local-implementation-queue.md."
   fi
 
