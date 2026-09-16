@@ -456,9 +456,9 @@ if { [ -n "$project_selector" ] || [ -n "$subproject_selector" ]; } && [ "$queue
   exit 2
 fi
 
-# Queue mode is deliberately thin. The launcher only turns a shorthand and an
-# optional managed-repository selector into a standard natural-language
-# request. github-projects owns matching, queue discovery, trust checks,
+# Queue mode is deliberately thin. The launcher only turns a shorthand and
+# optional managed-scope selectors into a standard natural-language request.
+# github-projects owns matching, queue discovery, trust checks,
 # Project resolution, mutations and independent readback.
 if [ "$queue_mode" -eq 1 ]; then
   if [ "$#" -gt 0 ]; then
