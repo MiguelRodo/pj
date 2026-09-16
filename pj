@@ -771,6 +771,26 @@ if [ "$#" -gt 0 ]; then
   fi
 fi
 
+cleanup_queue_receipts() {
+  if [ -n "$queue_receipt_dir" ]; then
+    rm -rf "$queue_receipt_dir"
+    queue_receipt_dir=""
+  fi
+}
+
+finish_launch() {
+  if [ -z "$queue_receipt_dir" ]; then
+    exec "$@"
+  fi
+  "$@"
+  status=$?
+  cleanup_queue_receipts
+  if [ "$queue_force_failure" -eq 1 ] && [ "$status" -eq 0 ]; then
+    status=1
+  fi
+  exit "$status"
+}
+
 run_codex() {
   codex_model="$(configured_model codex)" || exit 1
   defaults=(
@@ -781,16 +801,16 @@ run_codex() {
   )
 
   if [ "$has_prompt" -eq 0 ]; then
-    exec codex "${defaults[@]}" "${agent_args[@]}"
+    finish_launch codex "${defaults[@]}" "${agent_args[@]}"
   fi
 
   if should_interact; then
     # A positional prompt seeds the ordinary Codex TUI and leaves it open.
-    exec codex "${defaults[@]}" "${agent_args[@]}" "$prompt"
+    finish_launch codex "${defaults[@]}" "${agent_args[@]}" "$prompt"
   fi
 
   # Non-TTY and explicit --oneshot requests use Codex's non-interactive exec.
-  exec codex "${defaults[@]}" exec "${agent_args[@]}" "$prompt"
+  finish_launch codex "${defaults[@]}" exec "${agent_args[@]}" "$prompt"
 }
 
 run_antigravity() {
@@ -810,11 +830,11 @@ run_antigravity() {
   )
 
   if [ "$has_prompt" -eq 0 ]; then
-    exec agy "${defaults[@]}" "${agent_args[@]}"
+    finish_launch agy "${defaults[@]}" "${agent_args[@]}"
   fi
 
   if ! should_interact; then
-    exec agy "${headless_defaults[@]}" "${agent_args[@]}" -p "$prompt"
+    finish_launch agy "${headless_defaults[@]}" "${agent_args[@]}" -p "$prompt"
   fi
 
   # Antigravity has no documented interactive initial-prompt flag. Seed the
@@ -823,11 +843,12 @@ run_antigravity() {
   agy "${headless_defaults[@]}" "${agent_args[@]}" -p "$prompt"
   status=$?
   if [ "$status" -ne 0 ]; then
+    cleanup_queue_receipts
     exit "$status"
   fi
 
   printf '\npj: continuing the same Antigravity conversation interactively; type follow-up prompts directly in the TUI.\n' >&2
-  exec agy "${defaults[@]}" --continue
+  finish_launch agy "${defaults[@]}" --continue
 }
 
 run_copilot() {
@@ -841,16 +862,16 @@ run_copilot() {
   fi
 
   if [ "$has_prompt" -eq 0 ]; then
-    exec copilot "${defaults[@]}" "${agent_args[@]}"
+    finish_launch copilot "${defaults[@]}" "${agent_args[@]}"
   fi
 
   if should_interact; then
     # Copilot's -i/--interactive flag executes the initial prompt and keeps the
     # interactive session open for subsequent turns.
-    exec copilot "${defaults[@]}" "${agent_args[@]}" -i "$prompt"
+    finish_launch copilot "${defaults[@]}" "${agent_args[@]}" -i "$prompt"
   fi
 
-  exec copilot "${defaults[@]}" "${agent_args[@]}" -p "$prompt"
+  finish_launch copilot "${defaults[@]}" "${agent_args[@]}" -p "$prompt"
 }
 
 case "$backend" in
