@@ -151,11 +151,14 @@ Discovery is managed-contract-only. Never scan arbitrary accessible repositories
 Queue scope is exact, not fuzzy: repository, Project and configured sub-project
 selectors intersect, and closed issues are never candidates.
 
-The preferred performance direction is a deterministic, contract-aware queue
-preflight **before** model startup. An empty selected queue should return without
-launching an agent; a non-empty queue should pass bounded candidate identities so
-the agent does not rediscover the workspace. Reusable discovery belongs in
-`github-projects` / `projects`, not a new `pj` contract parser.
+Queue mode uses the canonical `github-projects` deterministic preflight
+**before** model startup. Empty or unmatched selected scope returns without
+launching an agent. A non-empty queue passes bounded candidate identities and
+local repository roots to the agent so it does not rediscover the workspace.
+Reusable discovery stays in `github-projects`; `pj` must not grow a second
+contract parser. If the installed preflight is unavailable, preserve the older
+agent-discovery path with a clear `pj --update-skill` warning rather than
+guessing contract semantics locally.
 
 ## What Ponytail should attack
 
