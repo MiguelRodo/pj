@@ -4,259 +4,183 @@ This repository contains `pj`, Miguel's standalone local operator launcher and
 maintenance tooling for managed projects.
 
 Work on a branch and open a pull request rather than pushing directly to `main`.
-Before proposing a change, run the test suite:
+Before proposing a change, run the complete offline suite:
 
 ```bash
 for f in tests/*.sh; do bash "$f"; done
 ```
 
-Tests must run offline and must not mutate live GitHub state or user
-configurations outside their temporary environments.
+Tests must not mutate live GitHub state or user configuration outside their
+temporary environments.
 
-## Ponytail and implementation simplicity
+## Ponytail
 
 For coding, refactoring, bug-fixing, review and implementation design, read
 `.agents/skills/ponytail/SKILL.md` and apply Ponytail in **full** mode by
 default. Do not use **ultra** unless the operator explicitly requests it.
-Vendoring and provenance are documented in
-`.agents/skills/ponytail/README.md`.
+Provenance is in `.agents/skills/ponytail/README.md`.
 
-Ponytail is a simplicity discipline, not authority to discard settled `pj`
-behaviour. Apply this precedence when a shorter implementation conflicts with
-another rule:
+Ponytail is subordinate to settled behaviour. Precedence is:
 
 1. the current explicit operator instruction or issue acceptance criteria;
-2. the durable architecture and behavioural contracts in this file;
-3. existing supported behaviour and migration compatibility when the task is a
-   refactor, simplification or maintenance change;
-4. Ponytail's preference for the smallest implementation.
+2. the durable contracts below;
+3. supported compatibility and migration behaviour for refactors/cleanup;
+4. the smallest implementation.
 
-Prefer deletion, reuse, shell/platform primitives and existing helpers over new
-frameworks. Challenge duplicated state, provider-specific branches, speculative
-abstractions, compatibility layers with no remaining caller, and repeated parsing
-that belongs in one canonical place. Do not use YAGNI to remove or weaken the
-contracts below.
+Prefer deletion, reuse and existing shell/platform primitives. Do not preserve
+duplication merely because it already exists. Conversely, do not call a required
+safety, compatibility or workflow contract "over-engineering".
 
-## Product and repository boundaries
+## Ownership boundaries
 
-Keep ownership deliberately narrow:
+Keep responsibilities in one place:
 
-- `MiguelRodo/pj` owns the local launcher, its installer, backend/session/model
-  selection, operator guidance installation and the managed-skill updater.
+- `pj` owns the local launcher, backend/session selection, per-user installation,
+  operator-guidance installation and the managed-skill updater.
 - `github-projects` owns GitHub issue/Project semantics, repository contracts,
-  routing, authority rules, preservation/readback behaviour and the optional
-  `projects` CLI execution surface. Do not create a second Project model in
+  routing, authority, preservation/readback and the optional deterministic
+  `projects` CLI. Do not build a second Project model or contract parser in
   `pj`.
-- The `projects` CLI is an optional deterministic backend for operations the
-  shared skill supports. It does not replace `pj`, become a second launcher or
-  define repository topology.
-- `setupmjr` may install/configure `pj`, but the canonical launcher and updater
-  implementation remains here. Do not duplicate `pj` logic into setup tooling.
-- The default operator workspace is `${PJ_WORKSPACE:-~/planning}`. Managed
-  repository identity comes from checked local `.projects` contracts, not from
-  remembered clone names or fuzzy guesses.
+- `projects` is an optional backend for supported deterministic GitHub operations,
+  not a second launcher.
+- setup tooling may install/configure `pj`, but must not fork its implementation.
+- Managed repository identity comes from checked local `.projects` contracts
+  under `${PJ_WORKSPACE:-~/planning}`, never fuzzy repository discovery.
 
-When a change appears to require moving one of these boundaries, keep the current
-boundary and raise the architectural change explicitly instead of smuggling it
-into a cleanup.
+If a cleanup would move one of these boundaries, preserve the boundary and raise
+that architecture change separately.
 
-## Launcher and backend contract
+## Launcher contract
 
-Preserve one shared launcher with thin backend-specific execution:
+Keep one shared launcher with thin backend-specific execution.
 
-- `pj` selects the configured backend.
-- `pja`, `pjcp` and `pjcd` explicitly select Antigravity, GitHub Copilot CLI
-  and Codex respectively.
-- Explicit `--backend` overrides a shorthand/default for that run. Environment
-  overrides remain one-run controls; saved defaults survive installer reruns.
-- Built-in model defaults are Codex `gpt-5.6-luna` with `xhigh` reasoning,
-  Copilot `mai-code-1.1-flash`, and no Antigravity model pin so Antigravity may
-  follow its provider default/current Flash model. Per-backend saved choices and
-  environment overrides are independent.
-- Do not add a new backend by copying launcher logic. Extend the common parsing and
-  session contract, with only the irreducible backend invocation kept specific.
+- `pj` uses the configured backend; `pja`, `pjcp` and `pjcd` explicitly
+  select Antigravity, Copilot and Codex.
+- Explicit run-time overrides beat saved defaults; saved backend/model choices are
+  independent and survive reinstall. Exact model defaults are ordinary tunable
+  configuration, not architecture.
+- Interactive terminal use stays conversational. Non-TTY execution is one-shot;
+  `-o` / `--oneshot` explicitly forces one-shot behaviour.
+- Preserve each backend's established continuity mechanism rather than making the
+  common interface one-shot for implementation convenience.
+- Do not add a backend by copying parser/session logic. Share everything except the
+  irreducible backend invocation.
 
-Normal prompt-launched terminal use is conversational:
+### Argument parsing
 
-- Codex starts its seeded interactive TUI.
-- Copilot uses its interactive initial-prompt mode.
-- Antigravity seeds one headless turn and immediately resumes that same workspace
-  conversation in the TUI because it has no equivalent initial-prompt flag.
-- Non-TTY execution is one-shot automatically.
-- `-o` / `--oneshot` explicitly requests one-shot execution.
-- Do not make ordinary terminal invocations exit after the first response merely
-  to simplify implementation.
-- Antigravity must not recursively invoke `agy` through the optional delegation
-  facility. Delegation from Codex/Copilot remains operator-authorised, not an
-  implicit launcher behaviour.
+`pj` consumes one contiguous leading prefix of recognised launcher options.
 
-## Argument parsing contract
+- recognised `pj` options compose in supported order;
+- the first ordinary token ends launcher-level parsing;
+- later dash-prefixed fragments are prompt text, not re-parsed launcher flags;
+- a leading literal `--` forces the remainder to prompt text;
+- agent-specific arguments may use a later `--` as their prompt separator.
 
-`pj` consumes one contiguous leading prefix of recognised `pj` options. Keep
-this deterministic and identical across backends:
+Keep this behaviour identical across backends.
 
-- recognised `pj` options may be composed in any supported order;
-- the first token that is not a recognised `pj` option, or the required value
-  for one, ends launcher-level option ingestion;
-- after that boundary, later dash-prefixed fragments are prompt text and must not
-  be reconsidered as `pj` flags;
-- a leading literal `--` forces all remaining arguments to prompt text;
-- when agent-specific options are used, a later literal `--` remains the
-  unambiguous separator when an agent option consumes a separate non-dash value.
+## Installation and guidance
 
-Do not replace this with clever reparsing or backend-specific parsers.
+Installation is per-user, conservative and idempotent.
 
-## Installer and operator-guidance contract
+- Prefer an explicit install location, then a standard user bin already on
+  `PATH`; record the chosen location so later installs can migrate old
+  installer-owned launchers safely.
+- Install one `pj` implementation plus managed aliases rather than divergent
+  scripts.
+- Preserve saved backend/model choices across reinstall.
+- Managed guidance edits are bounded and idempotent: preserve unrelated user
+  content, file modes and genuine backend-specific guidance.
+- `~/AGENTS.md` is the canonical cross-agent user guidance. Symlink to it only
+  when the target is absent/empty/installer-owned; otherwise preserve the file and
+  update only the managed block.
+- Broken/unrelated symlinks and unsafe non-file paths must fail safely rather than
+  be overwritten.
+- The workspace `AGENTS.md` is a dispatcher to the target repository's guidance,
+  contract and shared `github-projects` skill, not a second copy of project
+  policy.
 
-Installation is per-user, conservative and idempotent:
+## Managed-skill updater
 
-- An explicit `PJ_BIN_DIR` wins. Otherwise prefer a standard user bin already on
-  `PATH`, with `~/.local/bin` preferred over `~/bin`; create a sensible user
-  bin only when needed.
-- Record the selected install location so reruns can migrate an older
-  installer-owned location without leaving stale launchers that shadow the current
-  one.
-- Preserve the configured default backend and per-backend model choices across
-  reinstall.
-- Install `pj` once and create the managed aliases rather than maintaining four
-  divergent scripts.
-- Managed guidance updates must be bounded and idempotent. Preserve unrelated
-  operator-authored content and file modes.
-- `~/AGENTS.md` is the canonical cross-agent user-level guidance. Where safe,
-  documented backend instruction entrypoints should point to it rather than
-  duplicate it.
-- An absent, empty or installer-owned backend guidance file may become a symlink.
-  A genuine backend-specific file keeps its content and receives only the bounded
-  managed block. Unrelated/broken symlinks or unsafe non-file paths must be
-  preserved or fail clearly rather than overwritten.
-- The workspace `AGENTS.md` remains a dispatcher: resolve the managed target,
-  then defer to that repository's `AGENTS.md`, `.projects` contract and shared
-  `github-projects` guidance.
+`pj --update-skill` is the single supported updater path.
 
-Installer simplification must not silently discard custom guidance, model/default
-configuration, aliases, recorded install location or migration safety.
+- Resolve the repository's real default branch.
+- Refresh on an isolated worktree so the operator's current branch, index and dirty
+  files are untouched.
+- Determine staleness from the installed skill's canonical source/ref/tree, not an
+  ambiguous success message.
+- Commit only the skill refresh.
+- Fast-forward the operator checkout only when safe.
+- If branch protection rejects a direct push, use/reuse the dedicated update
+  branch and PR. Never bypass protection.
+- Never merge or push the canonical `github-projects-skill` protected `main`;
+  fast-forward its checkout when possible and fail visibly otherwise.
+- Any update, push, PR-handoff or restoration failure is a failure, not success.
 
-## Managed-skill updater contract
+Do not "simplify" this into in-place edits that can damage local work.
 
-`pj --update-skill` is the canonical user-facing updater. Keep one updater
-implementation rather than ad hoc repository loops.
+## Administration queue
 
-The updater must preserve the operator's working state:
+`pj -i`, `pj --implement-issues` and `pj --implement-chat` are aliases for
+the same **administrative-only** queue.
 
-- resolve each repository's real default branch rather than assuming the checked
-  out branch;
-- fetch and refresh on an isolated temporary worktree so the operator's branch,
-  index and dirty files are not touched;
-- treat the installed skill's recorded source/ref/tree as authority for whether it
-  is stale;
-- reinstall `github-projects` from canonical `main` when a managed copy is
-  missing, stale or tag-pinned, rather than trusting an ambiguous "already up to
-  date" message;
-- commit only the skill refresh;
-- fast-forward an operator checkout only when that is safe and non-destructive;
-- when repository protection rejects a direct push, preserve the skill-only change
-  on the dedicated update branch and open/reuse a PR instead of bypassing
-  protection;
-- never merge or push the canonical `github-projects-skill` repository's
-  protected `main`; fast-forward that checkout when possible and otherwise report
-  the failure;
-- fail visibly when default-branch resolution, update, push, PR handoff or state
-  restoration fails.
+The boundary is by effect, not wording:
 
-Do not shorten this by editing managed repositories in place or by discarding
-rollback/preservation behaviour.
-
-## Administration queue contract
-
-`pj -i`, `pj --implement-issues` and `pj --implement-chat` are compatibility
-aliases for the same **administrative-only** local queue.
-
-The boundary is an effect boundary:
-
-- Queue mode may use the `projects` CLI, `gh`, REST, GraphQL, shell or Python to
-  administer GitHub.
+- Queue mode may use `projects`, `gh`, REST, GraphQL, shell or Python for GitHub
+  administration.
 - It must never perform the substantive task represented by an issue: no product
-  or repository implementation, file edits for the task, implementation tests,
-  task-requested measurement/research/data analysis, implementation branches/PRs
-  or delegation of substantive work.
-- Imperative issue prose such as "build", "fix", "measure" or "analyse" describes
-  the task. It does not authorise queue execution and must not cause separable
+  implementation, task file edits, implementation tests, requested research/data
+  work, implementation PRs/branches or delegation of that task.
+- Imperative task prose does not authorise execution and must not cause separable
   administrative work to be skipped.
-- Existing ordinary task issues remain ordinary work items. After successful
-  administrative reconciliation, remove the queue label when appropriate but do
-  not close the task merely because its administration is complete.
-- Temporary administrative handoffs close only after the requested mutation has
-  been independently read back and verified.
+- Ordinary task issues remain open after administrative reconciliation unless the
+  task itself is independently complete. Temporary handoffs close only after
+  verified administration.
 
-Authority belongs to the resolved canonical skill/contract, not to a second model
-inside the launcher:
+Authority comes from the resolved canonical skill/contract:
 
-- The acting identity is the account reported by the local authenticated `gh`
-  session.
-- Under explicitly checked solo/personal governance, a matching issue author plus
-  queue label may use the streamlined reconciliation path.
-- Under collaborative/shared governance, or missing/ambiguous governance, require
-  an unedited comment by that authenticated account beginning exactly
-  `PJ implementation authority:` and stating the bounded administrative delta
-  itself.
-- Temporary handoffs and unusual/broader mutations always use the stronger
-  authority-comment path.
-- Trusted routine administration should not ask for a ritual preview. Untrusted,
-  suspicious or genuinely ambiguous items require review.
-- Every mutation requires stale-sensitive inspection and independent readback.
+- the acting identity is the locally authenticated `gh` account;
+- explicitly solo/personal governance may use the canonical streamlined trusted
+  reconciliation path;
+- collaborative/shared, missing or ambiguous governance requires the canonical
+  unedited `PJ implementation authority:` comment stating the bounded delta;
+- temporary handoffs and unusual/broader mutations use the stronger authority path;
+- trusted routine administration should not ask for ritual confirmation;
+- every mutation needs stale-sensitive inspection and independent readback.
 
-Queue discovery is limited to issue repositories and Projects declared by local
-managed `.projects` contracts. Never scan arbitrary repositories merely because
-the authenticated account can access them.
+Discovery is managed-contract-only. Never scan arbitrary accessible repositories.
+Queue scope is exact, not fuzzy: repository, Project and configured sub-project
+selectors intersect, and closed issues are never candidates.
 
-Queue scoping is designed as exact intersection, not fuzzy search:
+The preferred performance direction is a deterministic, contract-aware queue
+preflight **before** model startup. An empty selected queue should return without
+launching an agent; a non-empty queue should pass bounded candidate identities so
+the agent does not rediscover the workspace. Reusable discovery belongs in
+`github-projects` / `projects`, not a new `pj` contract parser.
 
-- repository selectors match exact managed repository identity under the canonical
-  selector rules;
-- Project selectors match exact managed Project identity;
-- sub-project selectors match only configured sub-project vocabulary;
-- combined selectors narrow by intersection;
-- closed issues are never queue candidates.
+## What Ponytail should attack
 
-The launcher should remain thin. The preferred performance direction is a
-deterministic, contract-aware queue preflight **before** model startup: if no
-matching open queue item exists, return without launching Antigravity/Codex/Copilot;
-if work exists, pass the bounded candidate identities/scope to the agent so it does
-not rediscover the whole workspace. Put reusable contract-aware discovery in the
-canonical `github-projects` / `projects` surface rather than adding another
-contract parser to `pj`.
+Prefer simplification of:
 
-## Simplicity rules specific to pj
+- repeated backend/parser/session branches that can share one implementation;
+- duplicated GitHub Project semantics or contract parsing;
+- speculative modes, compatibility layers with no caller and duplicate config;
+- dependencies for work already handled safely by the standard environment;
+- broad scans or model calls that deterministic preflight can avoid.
 
-Ponytail should aggressively question:
-
-- repeated backend branches that can share one parser/helper;
-- duplicated model/default/session logic;
-- handwritten GitHub Project logic that belongs to `github-projects`;
-- new config files when an existing recorded setting already owns the value;
-- extra launcher modes that can be expressed by the existing option-prefix model;
-- new dependencies for shell/file/config work already handled safely by the
-  standard environment;
-- broad scans or model calls when a deterministic preflight can cheaply prove a
-  no-op.
-
-Ponytail must not simplify away:
+Do not simplify away:
 
 - interactive-session continuity;
-- saved configuration and installer migration behaviour;
-- bounded managed-file preservation;
-- exact option-boundary semantics;
-- queue trust/authority/effect boundaries;
-- managed-contract-only discovery;
-- independent GitHub readback;
+- saved configuration and installer migration safety;
+- bounded preservation of user guidance;
+- argument-boundary semantics;
+- queue effect/trust/authority boundaries;
+- managed-contract-only discovery and independent GitHub readback;
 - protected-branch updater behaviour;
-- offline/hermetic tests that guard these contracts.
+- offline regression coverage protecting these contracts.
 
-The generic Ponytail suggestion that one runnable check can be enough does not
-override this repository's regression requirement. Run the complete
-`tests/*.sh` suite before proposing a change. Add the smallest focused regression
-that proves a new branch or bug fix, but do not delete useful migration, parser,
-session or queue tests merely to reduce line count.
+The generic Ponytail "one runnable check" suggestion is not a test cap here. Add
+the smallest focused regression for a change, keep useful existing regression
+coverage, and run the complete `tests/*.sh` suite before proposing it.
 
 <!-- github-projects:start -->
 ## GitHub issues and Projects
