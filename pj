@@ -470,16 +470,17 @@ if [ "$queue_agent_policy_set" -eq 1 ] && [ "$queue_mode" -eq 0 ]; then
   exit 2
 fi
 
-queue_preflight_script() {
-  if [ -n "${PJ_QUEUE_PREFLIGHT_SCRIPT:-}" ]; then
-    [ -f "$PJ_QUEUE_PREFLIGHT_SCRIPT" ] || return 1
-    printf '%s\n' "$PJ_QUEUE_PREFLIGHT_SCRIPT"
+queue_skill_script() {
+  local override="$1" name="$2" candidate
+  if [ -n "$override" ]; then
+    [ -f "$override" ] || return 1
+    printf '%s\n' "$override"
     return 0
   fi
 
   for candidate in \
-    "$workspace/github-projects-skill/skills/github-projects/scripts/queue-preflight.sh" \
-    "$workspace/pj/.agents/skills/github-projects/scripts/queue-preflight.sh"; do
+    "$workspace/github-projects-skill/skills/github-projects/scripts/$name" \
+    "$workspace/pj/.agents/skills/github-projects/scripts/$name"; do
     if [ -f "$candidate" ]; then
       printf '%s\n' "$candidate"
       return 0
@@ -488,9 +489,30 @@ queue_preflight_script() {
   return 1
 }
 
+queue_preflight_script() {
+  queue_skill_script "${PJ_QUEUE_PREFLIGHT_SCRIPT:-}" queue-preflight.sh
+}
+
+queue_execute_script() {
+  if [ -n "${PJ_QUEUE_EXECUTE_SCRIPT:-}" ]; then
+    queue_skill_script "$PJ_QUEUE_EXECUTE_SCRIPT" queue-execute.py
+    return
+  fi
+  if [ -n "$queue_preflight_path" ] && [ -f "$(dirname "$queue_preflight_path")/queue-execute.py" ]; then
+    printf '%s\n' "$(dirname "$queue_preflight_path")/queue-execute.py"
+    return 0
+  fi
+  queue_skill_script "" queue-execute.py
+}
+
 queue_preflight_output=""
 queue_preflight_status=""
 queue_preflight_path=""
+queue_execute_path=""
+queue_receipts_file=""
+queue_deterministic_used=0
+queue_agent_needed=0
+queue_hard_failure=0
 
 if [ "$queue_mode" -eq 1 ] && queue_preflight_path="$(queue_preflight_script)"; then
   preflight_args=(--workspace "$workspace")
@@ -526,6 +548,80 @@ if [ "$queue_mode" -eq 1 ] && queue_preflight_path="$(queue_preflight_script)"; 
   esac
 elif [ "$queue_mode" -eq 1 ]; then
   echo "pj: queue preflight is unavailable; run 'pj --update-skill'. Falling back to agent discovery." >&2
+fi
+
+if [ "$queue_mode" -eq 1 ] && [ "$queue_preflight_status" = "ready" ] && [ "$queue_agent_policy" != "before" ]; then
+  preflight_contracts_complete=1
+  while IFS=$'\t' read -r kind repository number url project_identity sub_key root contract; do
+    [ "$kind" = "candidate" ] || continue
+    if [ -z "$contract" ]; then
+      preflight_contracts_complete=0
+      break
+    fi
+  done <<<"$queue_preflight_output"
+
+  if [ "$preflight_contracts_complete" -ne 1 ]; then
+    echo "pj: queue preflight is too old for deterministic execution; run 'pj --update-skill'. Falling back to the bounded agent path." >&2
+  elif ! command -v python3 >/dev/null 2>&1 || ! queue_execute_path="$(queue_execute_script)"; then
+    echo "pj: deterministic queue executor is unavailable; run 'pj --update-skill'. Falling back to the bounded agent path." >&2
+  else
+    queue_receipt_dir="$(mktemp -d)" || exit 1
+    queue_receipts_file="$queue_receipt_dir/receipts.jsonl"
+    : >"$queue_receipts_file"
+    queue_deterministic_used=1
+
+    while IFS=$'\t' read -r kind repository number url project_identity sub_key root contract; do
+      [ "$kind" = "candidate" ] || continue
+      if ! receipt="$(python3 "$queue_execute_path" --contract "$contract" --root "$root" --repository "$repository" --issue "$number")"; then
+        echo "pj: deterministic queue executor failed for $repository#$number" >&2
+        rm -rf "$queue_receipt_dir"
+        exit 1
+      fi
+      if ! receipt_status="$(printf '%s' "$receipt" | python3 -c 'import json,sys; d=json.load(sys.stdin); s=d.get("status"); assert isinstance(s,str); print(s)')"; then
+        echo "pj: deterministic queue executor returned invalid JSON for $repository#$number" >&2
+        rm -rf "$queue_receipt_dir"
+        exit 1
+      fi
+      receipt_reason="$(printf '%s' "$receipt" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("reason") or (d.get("classification") or {}).get("reason") or "")')"
+      printf '%s\n' "$receipt" >>"$queue_receipts_file"
+      printf 'pj: queue item %s#%s: %s%s\n' "$repository" "$number" "$receipt_status" "${receipt_reason:+ ($receipt_reason)}"
+
+      case "$receipt_status" in
+        applied_verified)
+          ;;
+        needs_agent|review_required)
+          queue_agent_needed=1
+          ;;
+        blocked|partial_failure)
+          queue_hard_failure=1
+          ;;
+        *)
+          echo "pj: unknown deterministic queue status: $receipt_status" >&2
+          rm -rf "$queue_receipt_dir"
+          exit 1
+          ;;
+      esac
+    done <<<"$queue_preflight_output"
+
+    if [ "$queue_agent_policy" = "after" ]; then
+      queue_agent_needed=1
+    fi
+
+    if [ "$queue_agent_needed" -eq 0 ]; then
+      rm -rf "$queue_receipt_dir"
+      queue_receipt_dir=""
+      if [ "$queue_hard_failure" -eq 1 ]; then
+        echo "pj: deterministic queue processing stopped on a hard failure." >&2
+        exit 1
+      fi
+      echo "pj: deterministic queue administration completed without starting an agent."
+      exit 0
+    fi
+  fi
+fi
+
+if [ "$queue_hard_failure" -eq 1 ]; then
+  queue_force_failure=1
 fi
 
 # Queue mode is deliberately thin. The launcher only turns a shorthand and
