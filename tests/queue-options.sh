@@ -32,6 +32,10 @@ cat > "$tmp/preflight" <<'EOF'
 case "${PJ_TEST_PREFLIGHT_STATUS:-ready}" in
   ready)
     printf 'status\tready\n'
+    printf 'candidate\tMiguelRodo/issues\t42\thttps://github.com/MiguelRodo/issues/issues/42\tpersonal\tmonitoring\t%s\t%s\n' "$PJ_WORKSPACE/issues_miguel" "$PJ_WORKSPACE/issues_miguel/.projects/projects/personal.md"
+    ;;
+  oldready)
+    printf 'status\tready\n'
     printf 'candidate\tMiguelRodo/issues\t42\thttps://github.com/MiguelRodo/issues/issues/42\tpersonal\tmonitoring\t%s\n' "$PJ_WORKSPACE/issues_miguel"
     ;;
   empty)
@@ -47,6 +51,41 @@ esac
 EOF
 chmod +x "$tmp/preflight"
 
+cat > "$tmp/executor" <<'EOF'
+#!/usr/bin/env python3
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+with open(os.environ["PJ_TEST_EXECUTOR_LOG"], "a", encoding="utf-8") as handle:
+    handle.write(" ".join(args) + "\n")
+
+def value(flag):
+    return args[args.index(flag) + 1]
+
+status = os.environ.get("PJ_TEST_EXECUTOR_STATUS", "applied_verified")
+receipt = {
+    "status": status,
+    "target": {"repository": value("--repository"), "issue": int(value("--issue"))},
+    "planned": [{"kind": "project.membership.add"}],
+    "operations": [],
+    "remaining": [],
+}
+if status == "needs_agent":
+    receipt["reason"] = "queue.agent.legacy_authority"
+    receipt["agentContext"] = {"effectBoundary": "github_issue_project_administration_only"}
+elif status == "review_required":
+    receipt["reason"] = "queue.execute.after_review_required"
+    receipt["reviewContext"] = {"mode": "review_only"}
+elif status == "blocked":
+    receipt["reason"] = "queue.blocked.target_mismatch"
+elif status == "partial_failure":
+    receipt["reason"] = "queue.execute.parent_failed"
+print(json.dumps(receipt, separators=(",", ":")))
+EOF
+: >"$tmp/executor.log"
+
 run_pj() {
   HOME="$tmp/home" \
     PJ_WORKSPACE="$tmp/home/planning" \
@@ -60,6 +99,17 @@ run_pj_with_preflight() {
     PJ_WORKSPACE="$tmp/home/planning" \
     XDG_CONFIG_HOME="$tmp/home/.config" \
     PJ_QUEUE_PREFLIGHT_SCRIPT="$tmp/preflight" \
+    PATH="$tmp/bin:$PATH" \
+    bash "$pj" "$@"
+}
+
+run_pj_with_queue_scripts() {
+  HOME="$tmp/home" \
+    PJ_WORKSPACE="$tmp/home/planning" \
+    XDG_CONFIG_HOME="$tmp/home/.config" \
+    PJ_QUEUE_PREFLIGHT_SCRIPT="$tmp/preflight" \
+    PJ_QUEUE_EXECUTE_SCRIPT="$tmp/executor" \
+    PJ_TEST_EXECUTOR_LOG="$tmp/executor.log" \
     PATH="$tmp/bin:$PATH" \
     bash "$pj" "$@"
 }
