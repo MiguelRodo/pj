@@ -2,30 +2,15 @@
 
 operator_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 pj="$operator_dir/pj"
+. "$operator_dir/tests/helpers.sh"
 tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/home/planning" "$tmp/bin" || exit 1
 
-cat > "$tmp/bin/codex" <<'EOF'
-#!/usr/bin/env bash
-printf 'codex'
-for arg in "$@"; do
-  printf '\n<%s>' "$arg"
+for tool in codex copilot; do
+  write_arg_printer "$tmp/bin/$tool" "$tool" || exit 1
 done
-printf '\n'
-EOF
-
-cat > "$tmp/bin/copilot" <<'EOF'
-#!/usr/bin/env bash
-printf 'copilot'
-for arg in "$@"; do
-  printf '\n<%s>' "$arg"
-done
-printf '\n'
-EOF
-
-chmod +x "$tmp/bin/codex" "$tmp/bin/copilot" || exit 1
 
 cat > "$tmp/preflight" <<'EOF'
 #!/usr/bin/env bash
@@ -107,30 +92,6 @@ run_pj_with_preflight() {
     PJ_TEST_EXECUTE_LOG="${PJ_TEST_EXECUTE_LOG:-}" \
     PATH="$tmp/bin:$PATH" \
     bash "$pj" "$@"
-}
-
-assert_contains() {
-  output="$1"
-  expected="$2"
-  case "$output" in
-    *"$expected"*) ;;
-    *)
-      printf 'Expected output to contain: %s\nActual output:\n%s\n' "$expected" "$output" >&2
-      exit 1
-      ;;
-  esac
-}
-
-assert_not_contains() {
-  output="$1"
-  unexpected="$2"
-  case "$output" in
-    *"$unexpected"*)
-      printf 'Expected output not to contain: %s\nActual output:\n%s\n' "$unexpected" "$output" >&2
-      exit 1
-      ;;
-    *) ;;
-  esac
 }
 
 # -o is the short pj-level alias for --oneshot.
