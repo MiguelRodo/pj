@@ -5,62 +5,56 @@ launcher_source="$script_dir/pj"
 skill_update_source="$script_dir/update-managed-skills.sh"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
-skill_update_logic_target=""
 config_dir="$config_home/pj"
 default_backend_file="$config_dir/default-backend"
 install_bin_dir_file="$config_dir/install-bin-dir"
 
-path_contains_dir() {
-  local wanted entry
-  local -a path_entries
-  wanted="$(trim_trailing_slashes "$1")" || return 1
-  IFS=':' read -r -a path_entries <<< "$PATH"
-  for entry in "${path_entries[@]}"; do
-    [ -n "$entry" ] || continue
-    entry="$(trim_trailing_slashes "$entry")" || return 1
-    [ "$entry" = "$wanted" ] && return 0
-  done
-  return 1
-}
-
-expand_home_path() {
-  case "$1" in
-    "~") printf '%s\n' "$HOME" ;;
-    "~/"*) printf '%s/%s\n' "$HOME" "${1:2}" ;;
-    *) printf '%s\n' "$1" ;;
-  esac
-}
-
-trim_trailing_slashes() {
+normalise_path() {
   local value
-  value="$1"
+  case "$1" in
+    "~") value="$HOME" ;;
+    "~/"*) value="$HOME/${1:2}" ;;
+    *) value="$1" ;;
+  esac
   while [ "$value" != "/" ] && [ "${value%/}" != "$value" ]; do
     value="${value%/}"
   done
   printf '%s\n' "$value"
 }
 
-workspace="$(expand_home_path "${PJ_WORKSPACE:-$HOME/planning}")" || exit 1
-workspace="$(trim_trailing_slashes "$workspace")" || exit 1
-case "$workspace" in
-  /*) ;;
-  *)
-    printf 'pj installer: PJ_WORKSPACE must resolve to an absolute path: %s\n' "${PJ_WORKSPACE:-$HOME/planning}" >&2
-    exit 2
-    ;;
-esac
+absolute_path() {
+  local label raw value
+  label="$1"
+  raw="$2"
+  value="$(normalise_path "$raw")" || return 1
+  case "$value" in
+    /*) printf '%s\n' "$value" ;;
+    *)
+      printf 'pj installer: %s must resolve to an absolute path: %s\n' "$label" "$raw" >&2
+      return 2
+      ;;
+  esac
+}
+
+path_contains_dir() {
+  local wanted entry
+  local -a path_entries
+  wanted="$(normalise_path "$1")" || return 1
+  IFS=':' read -r -a path_entries <<< "$PATH"
+  for entry in "${path_entries[@]}"; do
+    [ -n "$entry" ] || continue
+    entry="$(normalise_path "$entry")" || return 1
+    [ "$entry" = "$wanted" ] && return 0
+  done
+  return 1
+}
+
+workspace="$(absolute_path PJ_WORKSPACE "${PJ_WORKSPACE:-$HOME/planning}")" || exit $?
 
 choose_launcher_dir() {
+  local candidate explicit_dir
   if [ -n "${PJ_BIN_DIR:-}" ]; then
-    explicit_dir="$(expand_home_path "$PJ_BIN_DIR")" || return 1
-    explicit_dir="$(trim_trailing_slashes "$explicit_dir")" || return 1
-    case "$explicit_dir" in
-      /*) ;;
-      *)
-        printf 'pj installer: PJ_BIN_DIR must resolve to an absolute path: %s\n' "$PJ_BIN_DIR" >&2
-        return 2
-        ;;
-    esac
+    explicit_dir="$(absolute_path PJ_BIN_DIR "$PJ_BIN_DIR")" || return $?
     printf '%s\n' "$explicit_dir"
     return
   fi
@@ -84,9 +78,6 @@ choose_launcher_dir() {
 
 launcher_dir="$(choose_launcher_dir)" || exit $?
 launcher_target="$launcher_dir/pj"
-antigravity_target="$launcher_dir/pja"
-copilot_target="$launcher_dir/pjcp"
-codex_target="$launcher_dir/pjcd"
 skill_data_dir="$data_home/pj"
 skill_update_logic_target="$skill_data_dir/update-managed-skills.sh"
 skill_update_target="$launcher_dir/pj-update-skills"
@@ -94,50 +85,43 @@ legacy_copilot_target="$launcher_dir/pjc"
 
 mkdir -p "$launcher_dir" "$config_dir" "$skill_data_dir" "$workspace" || exit 1
 
-managed_aliases_point_to() {
-  target="$1"
-  shift
-  for alias_path in "$@"; do
-    [ -L "$alias_path" ] || return 1
-    [ "$(readlink "$alias_path")" = "$target" ] || return 1
-  done
+managed_link_points_to() {
+  local link target
+  link="$1"
+  target="$2"
+  [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]
 }
 
 remove_previous_managed_install() {
-  previous_dir="$1"
-  previous_dir="$(trim_trailing_slashes "$previous_dir")" || return 1
+  local previous_dir previous_target alias_path
+  previous_dir="$(normalise_path "$1")" || return 1
   [ -n "$previous_dir" ] || return 0
   [ "$previous_dir" != "$launcher_dir" ] || return 0
 
   previous_target="$previous_dir/pj"
-  previous_pja="$previous_dir/pja"
-  previous_pjcp="$previous_dir/pjcp"
-  previous_pjcd="$previous_dir/pjcd"
-  previous_skill_update="$previous_dir/pj-update-skills"
-  previous_pjc="$previous_dir/pjc"
-
-  if managed_aliases_point_to "$previous_target" "$previous_pja" "$previous_pjcd" &&
-      { managed_aliases_point_to "$previous_target" "$previous_pjcp" ||
-        managed_aliases_point_to "$previous_target" "$previous_pjc"; }; then
-    rm -f "$previous_pja" "$previous_pjcd" || exit 1
-    if [ -L "$previous_pjcp" ] && [ "$(readlink "$previous_pjcp")" = "$previous_target" ]; then
-      rm -f "$previous_pjcp" || exit 1
-    fi
-    rm -f "$previous_skill_update" || exit 1
-    if [ -L "$previous_pjc" ] && [ "$(readlink "$previous_pjc")" = "$previous_target" ]; then
-      rm -f "$previous_pjc" || exit 1
-    fi
-    rm -f "$previous_target" || exit 1
-    printf 'Removed previous managed pj install from %s\n' "$previous_dir"
+  managed_link_points_to "$previous_dir/pja" "$previous_target" || return 0
+  managed_link_points_to "$previous_dir/pjcd" "$previous_target" || return 0
+  if ! managed_link_points_to "$previous_dir/pjcp" "$previous_target" &&
+      ! managed_link_points_to "$previous_dir/pjc" "$previous_target"; then
+    return 0
   fi
+
+  rm -f "$previous_dir/pja" "$previous_dir/pjcd" "$previous_dir/pj-update-skills" || return 1
+  for alias_path in "$previous_dir/pjcp" "$previous_dir/pjc"; do
+    if managed_link_points_to "$alias_path" "$previous_target"; then
+      rm -f "$alias_path" || return 1
+    fi
+  done
+  rm -f "$previous_target" || return 1
+  printf 'Removed previous managed pj install from %s\n' "$previous_dir"
 }
 
 if [ -f "$install_bin_dir_file" ]; then
   previous_launcher_dir=""
   IFS= read -r previous_launcher_dir < "$install_bin_dir_file" || true
-  remove_previous_managed_install "$previous_launcher_dir"
+  remove_previous_managed_install "$previous_launcher_dir" || exit 1
 elif [ "$launcher_dir" != "$HOME/bin" ]; then
-  remove_previous_managed_install "$HOME/bin"
+  remove_previous_managed_install "$HOME/bin" || exit 1
 fi
 
 install -m 0755 "$launcher_source" "$launcher_target" || exit 1
@@ -148,11 +132,11 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 exec "$script_dir/pj" --update-skill "$@"
 EOF_WRAPPER
 chmod 0755 "$skill_update_target" || exit 1
-ln -sfn "$launcher_target" "$antigravity_target" || exit 1
-ln -sfn "$launcher_target" "$copilot_target" || exit 1
-ln -sfn "$launcher_target" "$codex_target" || exit 1
+for alias_name in pja pjcp pjcd; do
+  ln -sfn "$launcher_target" "$launcher_dir/$alias_name" || exit 1
+done
 
-if [ -L "$legacy_copilot_target" ] && [ "$(readlink "$legacy_copilot_target")" = "$launcher_target" ]; then
+if managed_link_points_to "$legacy_copilot_target" "$launcher_target"; then
   rm -f "$legacy_copilot_target" || exit 1
 fi
 
@@ -249,11 +233,7 @@ update_managed_block() {
 }
 
 file_mode() {
-  if stat -c '%a' "$1" >/dev/null 2>&1; then
-    stat -c '%a' "$1"
-  else
-    stat -f '%Lp' "$1"
-  fi
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
 
 strip_known_backend_blocks() {
@@ -475,12 +455,12 @@ for that target.
 <!-- pj-managed-projects:end -->
 EOF_CONTEXT
 
-codex_context="$HOME/.codex/AGENTS.md"
-copilot_context="$HOME/.copilot/copilot-instructions.md"
-gemini_context="$HOME/.gemini/GEMINI.md"
-ensure_shared_context_entry "$codex_context" || exit 1
-ensure_shared_context_entry "$copilot_context" || exit 1
-ensure_shared_context_entry "$gemini_context" || exit 1
+for context in \
+  "$HOME/.codex/AGENTS.md" \
+  "$HOME/.copilot/copilot-instructions.md" \
+  "$HOME/.gemini/GEMINI.md"; do
+  ensure_shared_context_entry "$context" || exit 1
+done
 
 codex_rules="$HOME/.codex/rules/default.rules"
 update_managed_block "$codex_rules" '# pj-agy-subagent:start' '# pj-agy-subagent:end' <<'EOF_RULES'
@@ -494,9 +474,9 @@ prefix_rule(
 EOF_RULES
 
 printf 'Installed pj at %s\n' "$launcher_target"
-printf 'Installed pja -> pj at %s\n' "$antigravity_target"
-printf 'Installed pjcp -> pj at %s\n' "$copilot_target"
-printf 'Installed pjcd -> pj at %s\n' "$codex_target"
+printf 'Installed pja -> pj at %s\n' "$launcher_dir/pja"
+printf 'Installed pjcp -> pj at %s\n' "$launcher_dir/pjcp"
+printf 'Installed pjcd -> pj at %s\n' "$launcher_dir/pjcd"
 printf 'Installed update-managed-skills.sh at %s\n' "$skill_update_logic_target"
 printf 'Installed pj-update-skills compatibility shim at %s\n' "$skill_update_target"
 printf 'Recorded pj install directory in %s\n' "$install_bin_dir_file"
@@ -506,21 +486,14 @@ printf 'Updated shared workspace guidance at %s\n' "$workspace_context"
 printf 'Linked or hard-updated Codex, Copilot and Antigravity user instructions from %s without replacing custom files.\n' "$home_context"
 printf 'Updated Codex agy execution rule at %s\n' "$codex_rules"
 
-if ! command -v codex >/dev/null 2>&1; then
-  printf 'Note: codex is not currently on PATH.\n' >&2
-fi
+note_if_missing() {
+  command -v "$1" >/dev/null 2>&1 || printf '%s\n' "$2" >&2
+}
 
-if ! command -v agy >/dev/null 2>&1; then
-  printf 'Note: agy is not currently on PATH. Install and authenticate Google Antigravity CLI before using pja or delegated agy calls.\n' >&2
-fi
-
-if ! command -v copilot >/dev/null 2>&1; then
-  printf 'Note: copilot is not currently on PATH. Install and authenticate GitHub Copilot CLI before using pjcp.\n' >&2
-fi
-
-if ! command -v projects >/dev/null 2>&1; then
-  printf 'Note: the optional projects CLI is not currently on PATH. pj still works; installation instructions are at https://github.com/MiguelRodo/github-projects-skill/blob/main/docs/cli.md.\n' >&2
-fi
+note_if_missing codex 'Note: codex is not currently on PATH.'
+note_if_missing agy 'Note: agy is not currently on PATH. Install and authenticate Google Antigravity CLI before using pja or delegated agy calls.'
+note_if_missing copilot 'Note: copilot is not currently on PATH. Install and authenticate GitHub Copilot CLI before using pjcp.'
+note_if_missing projects 'Note: the optional projects CLI is not currently on PATH. pj still works; installation instructions are at https://github.com/MiguelRodo/github-projects-skill/blob/main/docs/cli.md.'
 
 if ! path_contains_dir "$launcher_dir"; then
   printf 'Note: %s is not currently on PATH. Add it in your shell startup file or rerun with PJ_BIN_DIR set to a suitable user bin directory.\n' "$launcher_dir" >&2
