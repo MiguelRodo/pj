@@ -1,0 +1,144 @@
+name: Apply init command patch
+
+on:
+  push:
+    branches:
+      - add-init-command
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: add-init-command
+      - name: Apply minimal init command change
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          pj = Path('pj')
+          text = pj.read_text()
+          start = text.index('if [ "${1:-}" = "--add-skill" ]; then')
+          end = text.index('\nif [ "${1:-}" = "--update-skill" ]; then', start)
+          block = r'''if [ "${1:-}" = "--init" ] || [ "${1:-}" = "--add-skill" ]; then
+            skill_command="$1"
+            shift
+            if [ "$#" -gt 0 ]; then
+              echo "pj: $skill_command does not take arguments; run it from the repository that should receive the skill" >&2
+              exit 2
+            fi
+
+            target_repo="$(git -C "$launch_dir" rev-parse --show-toplevel 2>/dev/null)" || {
+              echo "pj: $skill_command must be run from inside the target Git repository" >&2
+              exit 1
+            }
+
+            if [ -f "$target_repo/.agents/skills/github-projects/SKILL.md" ]; then
+              if [ "$skill_command" = "--add-skill" ]; then
+                echo "pj: $target_repo already has github-projects; use 'pj --update-skill' to refresh it"
+                exit 0
+              fi
+              echo "pj: $target_repo already has github-projects; continuing with project initialisation"
+            else
+              if [ -e "$target_repo/.agents/skills/github-project-admin" ]; then
+                echo "pj: $target_repo has the legacy github-project-admin skill; use 'pj --update-skill' to migrate it" >&2
+                exit 1
+              fi
+
+              if ! (cd "$target_repo" && gh skill install MiguelRodo/github-projects-skill github-projects --agent universal --scope project --pin main); then
+                exit 1
+              fi
+              echo "pj: added github-projects to $target_repo"
+            fi
+
+            if [ "$skill_command" = "--init" ]; then
+              init_script="$target_repo/.agents/skills/github-projects/scripts/init-project.sh"
+              if [ ! -f "$init_script" ]; then
+                echo "pj: github-projects is installed but its init-project.sh is missing; run 'pj --update-skill' and retry" >&2
+                exit 1
+              fi
+              cd "$target_repo" || exit 1
+              exec bash "$init_script"
+            fi
+
+            if [ ! -f "$target_repo/.projects/project.md" ]; then
+              echo "pj: next: cd '$target_repo' && bash .agents/skills/github-projects/scripts/init-project.sh"
+            fi
+            exit 0
+          fi
+          '''
+          pj.write_text(text[:start] + block + text[end:])
+
+          readme = Path('README.md')
+          text = readme.read_text()
+          start = text.index('## Add the shared Project skill')
+          end = text.index('## Update the shared Project skill', start)
+          section = '''## Initialise a repository\n\nFrom inside a Git repository that should start using `github-projects`, the normal\nonboarding command is:\n\n```bash\npj --init\n```\n\n`--init` adds the canonical `github-projects` skill when needed and then runs the\nskill-owned `init-project.sh` from the target repository. `pj` does not duplicate\nthe Project discovery, prompts, contract creation or validation logic.\n\nFor the lower-level operation that only adds the shared skill, use:\n\n```bash\npj --add-skill\n```\n\nThis installs the skill pinned to `main` at project scope but deliberately leaves\n`.projects` setup to the skill initializer. If the skill is already present,\n`--add-skill` is a no-op and points to `pj --update-skill`; `--init` continues into\nthe existing initializer. A legacy `github-project-admin` install is left to the\nupdater rather than creating two competing skill copies.\n\n'''
+          readme.write_text(text[:start] + section + text[end:])
+
+          test = Path('tests/add-skill.sh')
+          text = test.read_text()
+          needle = "  mkdir -p .agents/skills/github-projects\n  printf '%s\\n' '# github-projects test skill' > .agents/skills/github-projects/SKILL.md\n  exit 0\n"
+          replacement = "  mkdir -p .agents/skills/github-projects/scripts\n  printf '%s\\n' '# github-projects test skill' > .agents/skills/github-projects/SKILL.md\n  cat > .agents/skills/github-projects/scripts/init-project.sh <<'INIT_EOF'\n#!/usr/bin/env bash\nprintf '%s\\n' \"$PWD\" > \"$PJ_TEST_INIT_PWD\"\nINIT_EOF\n  chmod +x .agents/skills/github-projects/scripts/init-project.sh\n  exit 0\n"
+          if needle not in text:
+              raise SystemExit('add-skill gh stub changed unexpectedly')
+          text = text.replace(needle, replacement, 1)
+
+          marker = "printf 'add-skill tests passed\\n'\n"
+          init_test = r'''init_target="$tmp/init-target"
+          mkdir -p "$init_target/subdir"
+          git init -b main "$init_target" >/dev/null 2>&1 || exit 1
+          init_args_log="$tmp/init-gh.args"
+          init_pwd_log="$tmp/init-gh.pwd"
+          init_script_pwd_log="$tmp/init-script.pwd"
+
+          init_output="$(
+            cd "$init_target/subdir" &&
+            HOME="$tmp/home" \
+              PJ_WORKSPACE="$workspace" \
+              PJ_TEST_GH_ARGS="$init_args_log" \
+              PJ_TEST_GH_PWD="$init_pwd_log" \
+              PJ_TEST_INIT_PWD="$init_script_pwd_log" \
+              PATH="$tmp/bin:$PATH" \
+              bash "$pj" --init
+          )" || exit 1
+
+          [ "$(cat "$init_pwd_log")" = "$init_target" ] || exit 1
+          [ "$(cat "$init_script_pwd_log")" = "$init_target" ] || exit 1
+          [ "$(cat "$init_args_log")" = '<skill><install><MiguelRodo/github-projects-skill><github-projects><--agent><universal><--scope><project><--pin><main>' ] || exit 1
+          case "$init_output" in
+            *"pj: added github-projects to $init_target"*) ;;
+            *) exit 1 ;;
+          esac
+
+          if (
+            cd "$init_target" &&
+            HOME="$tmp/home" PJ_WORKSPACE="$workspace" PATH="$tmp/bin:$PATH" bash "$pj" --init unexpected
+          ) >/dev/null 2>&1; then
+            echo 'pj --init unexpectedly accepted an argument' >&2
+            exit 1
+          fi
+
+          printf 'add-skill and init tests passed\n'
+          '''
+          if marker not in text:
+              raise SystemExit('add-skill test footer changed unexpectedly')
+          text = text.replace(marker, init_test, 1)
+          test.write_text(text)
+          PY
+      - name: Run complete offline suite
+        run: for f in tests/*.sh; do bash "$f"; done
+      - name: Commit change
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pj README.md tests/add-skill.sh
+          git commit -m 'Add pj --init repository onboarding'
+          git push origin HEAD:add-init-command
