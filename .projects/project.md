@@ -10,9 +10,6 @@
 | Project title | projects |
 | Routing | Project 40 membership; no routing label |
 | Privacy | public repository with a private user Project |
-| Issue write-up style | tidy |
-| Issue prose style | natural-direct |
-| Chat implementation label | pj:implement-chat |
 
 ## Field locations
 
@@ -23,38 +20,6 @@
 | Status | project field | Status |
 | Due date | project field | Target date |
 | Parent | native issue relationship | Parent issue |
-
-## Priority mapping
-
-This Project uses the common names directly.
-
-| Common value | Provider value | Colour |
-| --- | --- | --- |
-| P0 | P0 | RED |
-| P1 | P1 | ORANGE |
-| P2 | P2 | YELLOW |
-| P3 | P3 | PURPLE |
-
-## Class values
-
-| Option | Colour |
-| --- | --- |
-| Task | GRAY |
-| Bug | RED |
-| Enhancement | GREEN |
-| Data | PINK |
-| Analysis | PURPLE |
-| Deliverable | ORANGE |
-| Documentation | YELLOW |
-| Epic | BLUE |
-
-## Status mapping
-
-| Common value | Provider value |
-| --- | --- |
-| Todo | Todo |
-| In progress | In progress |
-| Done | Done |
 
 ## Governance
 
