@@ -77,7 +77,7 @@ configured_model() {
       builtin_value=""
       ;;
     copilot)
-      environment_value="${PJ_COPILOT_MODEL:-}"
+      environment_value="${PJ_COPILOT_MODEL:-${COPILOT_MODEL:-}}"
       builtin_value="mai-code-1.1-flash"
       ;;
   esac
@@ -723,6 +723,7 @@ run_antigravity() {
 run_copilot() {
   defaults=(
     --allow-all
+    --reasoning-effort max
   )
 
   if [ -n "$backend_model" ]; then

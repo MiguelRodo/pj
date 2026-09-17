@@ -5,6 +5,7 @@ installer="$operator_dir/install.sh"
 . "$operator_dir/tests/helpers.sh"
 tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
+unset COPILOT_MODEL PJ_COPILOT_MODEL PJ_CODEX_MODEL PJ_ANTIGRAVITY_MODEL PJ_DEFAULT_BACKEND PJ_BACKEND
 
 mkdir -p "$tmp/home/planning" "$tmp/home/.local/bin" "$tmp/bin" || exit 1
 
@@ -200,6 +201,8 @@ assert_contains "$agy_custom_timeout" '<Use a longer timeout>'
 copilot_alias="$(run_named pjcp Create the issue - with a dash)" || exit 1
 assert_contains "$copilot_alias" 'copilot'
 assert_contains "$copilot_alias" '<--allow-all>'
+assert_contains "$copilot_alias" '<--reasoning-effort>'
+assert_contains "$copilot_alias" '<max>'
 assert_contains "$copilot_alias" '<--model>'
 assert_contains "$copilot_alias" '<mai-code-1.1-flash>'
 assert_contains "$copilot_alias" '<-p>'
@@ -268,6 +271,9 @@ assert_contains "$codex_custom_model" '<model_reasoning_effort="xhigh">'
 
 copilot_env_model="$(PJ_COPILOT_MODEL=env-copilot-model run_named pjcp 'Use environment Copilot model')" || exit 1
 assert_contains "$copilot_env_model" '<env-copilot-model>'
+
+copilot_cli_env_model="$(COPILOT_MODEL=cli-copilot-model run_named pjcp 'Use COPILOT_MODEL environment variable')" || exit 1
+assert_contains "$copilot_cli_env_model" '<cli-copilot-model>'
 
 agy_env_model="$(PJ_ANTIGRAVITY_MODEL=env-agy-model run_named pja 'Use environment Antigravity model')" || exit 1
 assert_contains "$agy_env_model" '<env-agy-model>'
