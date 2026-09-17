@@ -2,7 +2,6 @@
 
 launch_dir="$PWD"
 workspace="${PJ_WORKSPACE:-$HOME/planning}"
-cd "$workspace" || exit 1
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 config_dir="$config_home/pj"
@@ -273,6 +272,8 @@ if [ "${1:-}" = "--update-skill" ]; then
 
   exec bash "$updater"
 fi
+
+cd "$workspace" || exit 1
 
 launcher_name="$(basename "$0")"
 case "$launcher_name" in
