@@ -135,6 +135,23 @@ If the installed canonical queue tooling is unavailable, `pj` keeps processing
 bounded and tells the operator to refresh the shared skill rather than inventing
 GitHub Project semantics locally.
 
+## Add the shared Project skill
+
+From inside a Git repository that should start using `github-projects`, run:
+
+```bash
+pj --add-skill
+```
+
+This adds the canonical `github-projects` skill pinned to `main` in that
+repository. It does not create or change the repository's `.projects` contract.
+For a repository that has not been configured yet, `pj` prints the existing
+`init-project.sh` command to run next.
+
+If the repository already has `github-projects`, `--add-skill` is a no-op and
+points you to `pj --update-skill`. A legacy `github-project-admin` install is also
+left to the updater rather than creating two competing skill copies.
+
 ## Update the shared Project skill
 
 Use the maintained updater entry point:
@@ -143,8 +160,9 @@ Use the maintained updater entry point:
 pj --update-skill
 ```
 
-It refreshes `github-projects` across managed repositories while preserving the
-operator's checked-out work and respecting protected branches. The legacy
+It refreshes `github-projects` across repositories that already carry the current
+or legacy skill while preserving the operator's checked-out work and respecting
+protected branches. It does not add the skill to a new repository. The legacy
 `pj-update-skills` command remains only as a compatibility shim. Detailed updater
 safety and branch-handling contracts live in `AGENTS.md` and the updater tests.
 
