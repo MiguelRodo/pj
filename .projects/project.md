@@ -28,24 +28,24 @@
 
 This Project uses the common names directly.
 
-| Common value | Provider value |
-| --- | --- |
-| P0 | P0 |
-| P1 | P1 |
-| P2 | P2 |
-| P3 | P3 |
+| Common value | Provider value | Colour |
+| --- | --- | --- |
+| P0 | P0 | RED |
+| P1 | P1 | ORANGE |
+| P2 | P2 | YELLOW |
+| P3 | P3 | PURPLE |
 
 ## Class values
 
 | Option | Colour |
 | --- | --- |
-| Task | YELLOW |
+| Task | GRAY |
 | Bug | RED |
 | Enhancement | GREEN |
 | Data | PINK |
 | Analysis | PURPLE |
 | Deliverable | ORANGE |
-| Documentation | GRAY |
+| Documentation | YELLOW |
 | Epic | BLUE |
 
 ## Status mapping
