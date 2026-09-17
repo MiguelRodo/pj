@@ -1,0 +1,60 @@
+version: 2
+project_name: pj
+
+builds:
+  - skip: true
+
+archives:
+  - id: pj-source
+    meta: true
+    formats:
+      - tar.gz
+    name_template: "pj_{{ .Version }}"
+    files:
+      - pj
+      - install.sh
+      - update-managed-skills.sh
+      - README.md
+
+nfpms:
+  - id: pj
+    package_name: pj
+    meta: true
+    formats:
+      - deb
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_all"
+    homepage: "https://github.com/MiguelRodo/pj"
+    description: "Local operator launcher and managed-project maintenance tooling"
+    maintainer: "Miguel Rodo"
+    dependencies:
+      - bash
+      - git
+    contents:
+      - src: pj
+        dst: /usr/bin/pj
+        file_info:
+          mode: 0755
+      - src: update-managed-skills.sh
+        dst: /usr/bin/update-managed-skills.sh
+        file_info:
+          mode: 0755
+      - src: packaging/pj-update-skills
+        dst: /usr/bin/pj-update-skills
+        file_info:
+          mode: 0755
+      - src: /usr/bin/pj
+        dst: /usr/bin/pja
+        type: symlink
+      - src: /usr/bin/pj
+        dst: /usr/bin/pjcp
+        type: symlink
+      - src: /usr/bin/pj
+        dst: /usr/bin/pjcd
+        type: symlink
+      - src: README.md
+        dst: /usr/share/doc/pj/README.md
+        file_info:
+          mode: 0644
+
+checksum:
+  name_template: checksums.txt
