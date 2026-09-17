@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - main
-    paths:
-      - '.github/workflows/go-version-release.yml'
-      - '.goreleaser.yml'
-      - 'packaging/pj-update-skills'
   workflow_dispatch:
     inputs:
       version:
@@ -32,25 +26,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      # One-time bootstrap so the release path becomes usable immediately.
-      # Remove this branch-push path after v0.1.1 is published.
-      - name: Check initial release
-        if: github.ref_type == 'branch'
-        id: bootstrap
-        shell: bash
-        run: |
-          if git show-ref --tags --verify --quiet refs/tags/v0.1.1; then
-            echo 'release=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'release=true' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish release
-        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || steps.bootstrap.outputs.release == 'true'
-        uses: MiguelRodo/actions/go-version-release@509750b862eeec82bd7596b81bca13b2bdfbcc3a # current v2 action
+      - uses: MiguelRodo/actions/go-version-release@509750b862eeec82bd7596b81bca13b2bdfbcc3a # current v2 action
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          version: ${{ github.ref_type == 'branch' && '0.1.1' || inputs.version }}
+          version: ${{ inputs.version }}
           bump_type: ${{ inputs.bump_type }}
           version_force: ${{ inputs.version_force }}
           goreleaser_config: .goreleaser.yml
