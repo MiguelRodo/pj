@@ -16,8 +16,13 @@ cat > "$tmp/bin/gh" <<'EOF'
 printf '%s\n' "$PWD" > "$PJ_TEST_GH_PWD"
 printf '<%s>' "$@" > "$PJ_TEST_GH_ARGS"
 if [ "$1" = skill ] && [ "$2" = install ]; then
-  mkdir -p .agents/skills/github-projects
+  mkdir -p .agents/skills/github-projects/scripts
   printf '%s\n' '# github-projects test skill' > .agents/skills/github-projects/SKILL.md
+  cat > .agents/skills/github-projects/scripts/init-project.sh <<'INIT_EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$PWD" > "$PJ_TEST_INIT_PWD"
+INIT_EOF
+  chmod +x .agents/skills/github-projects/scripts/init-project.sh
   exit 0
 fi
 exit 2
@@ -83,4 +88,38 @@ if (
   exit 1
 fi
 
-printf 'add-skill tests passed\n'
+init_target="$tmp/init-target"
+mkdir -p "$init_target/subdir"
+git init -b main "$init_target" >/dev/null 2>&1 || exit 1
+init_args_log="$tmp/init-gh.args"
+init_pwd_log="$tmp/init-gh.pwd"
+init_script_pwd_log="$tmp/init-script.pwd"
+
+init_output="$(
+  cd "$init_target/subdir" &&
+  HOME="$tmp/home" \
+    PJ_WORKSPACE="$workspace" \
+    PJ_TEST_GH_ARGS="$init_args_log" \
+    PJ_TEST_GH_PWD="$init_pwd_log" \
+    PJ_TEST_INIT_PWD="$init_script_pwd_log" \
+    PATH="$tmp/bin:$PATH" \
+    bash "$pj" --init
+)" || exit 1
+
+[ "$(cat "$init_pwd_log")" = "$init_target" ] || exit 1
+[ "$(cat "$init_script_pwd_log")" = "$init_target" ] || exit 1
+[ "$(cat "$init_args_log")" = '<skill><install><MiguelRodo/github-projects-skill><github-projects><--agent><universal><--scope><project><--pin><main>' ] || exit 1
+case "$init_output" in
+  *"pj: added github-projects to $init_target"*) ;;
+  *) exit 1 ;;
+esac
+
+if (
+  cd "$init_target" &&
+  HOME="$tmp/home" PJ_WORKSPACE="$workspace" PATH="$tmp/bin:$PATH" bash "$pj" --init unexpected
+) >/dev/null 2>&1; then
+  echo 'pj --init unexpectedly accepted an argument' >&2
+  exit 1
+fi
+
+printf 'add-skill and init tests passed\n'

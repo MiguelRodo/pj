@@ -135,22 +135,30 @@ If the installed canonical queue tooling is unavailable, `pj` keeps processing
 bounded and tells the operator to refresh the shared skill rather than inventing
 GitHub Project semantics locally.
 
-## Add the shared Project skill
+## Initialise a repository
 
-From inside a Git repository that should start using `github-projects`, run:
+From inside a Git repository that should start using `github-projects`, the normal
+onboarding command is:
+
+```bash
+pj --init
+```
+
+`--init` adds the canonical `github-projects` skill when needed and then runs the
+skill-owned `init-project.sh` from the target repository. `pj` does not duplicate
+the Project discovery, prompts, contract creation or validation logic.
+
+For the lower-level operation that only adds the shared skill, use:
 
 ```bash
 pj --add-skill
 ```
 
-This adds the canonical `github-projects` skill pinned to `main` in that
-repository. It does not create or change the repository's `.projects` contract.
-For a repository that has not been configured yet, `pj` prints the existing
-`init-project.sh` command to run next.
-
-If the repository already has `github-projects`, `--add-skill` is a no-op and
-points you to `pj --update-skill`. A legacy `github-project-admin` install is also
-left to the updater rather than creating two competing skill copies.
+This installs the skill pinned to `main` at project scope but deliberately leaves
+`.projects` setup to the skill initializer. If the skill is already present,
+`--add-skill` is a no-op and points to `pj --update-skill`; `--init` continues into
+the existing initializer. A legacy `github-project-admin` install is left to the
+updater rather than creating two competing skill copies.
 
 ## Update the shared Project skill
 
