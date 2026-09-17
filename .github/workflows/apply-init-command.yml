@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - add-init-command
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
