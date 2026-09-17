@@ -1,18 +1,18 @@
 # Local `pj` operator
 
-`pj` is Miguel's standalone local operator launcher and maintenance tooling for managed projects. It runs the configured local agent against `${PJ_WORKSPACE:-~/planning}`. The backend shorthands are `pja` for Google Antigravity, `pjcp` for GitHub Copilot CLI and `pjcd` for Codex.
+`pj` is Miguel's local launcher and maintenance tool for managed projects. It runs
+the selected local agent in `${PJ_WORKSPACE:-~/planning}`. The backend shorthands
+are `pja` for Google Antigravity, `pjcp` for GitHub Copilot CLI and `pjcd` for
+Codex.
 
-`pj` is not an alias for the optional `projects` Go CLI. The launcher chooses an
-agent and keeps its conversation open; `projects` handles supported deterministic
-GitHub Project operations. An agent started by `pj` may use that binary when it
-is installed, then follow the repository scripts or direct GitHub path when it
-is not. See the
-[`projects` CLI guide](https://github.com/MiguelRodo/github-projects-skill/blob/main/docs/cli.md)
-for installation and read-only update checks.
+`pj` is separate from the optional `projects` CLI. `pj` launches and orchestrates
+agents; `projects` performs supported deterministic GitHub Project operations.
+See the [`projects` CLI guide](https://github.com/MiguelRodo/github-projects-skill/blob/main/docs/cli.md)
+for that tool.
 
-## Installation
+## Install
 
-Run the installer from a local checkout:
+From a local checkout:
 
 ```bash
 git clone https://github.com/MiguelRodo/pj.git
@@ -20,150 +20,68 @@ cd pj
 bash install.sh
 ```
 
-Alternatively, if `setupmjr` is installed:
+Or, with `setupmjr` installed:
 
 ```bash
 setupmjr project --pj
 ```
 
-The installer prefers `~/.local/bin` when it is already on `PATH`, then `~/bin`
-when that is the configured standard user bin directory. If neither is on
-`PATH`, it prefers an existing `~/.local/bin` or `~/bin`, in that order, and
-otherwise creates `~/.local/bin`. The selected directory is recorded in
-`${XDG_CONFIG_HOME:-~/.config}/pj/install-bin-dir` so a later reinstall can
-safely migrate an older installer-managed location rather than leave a stale
-launcher shadowing the current one.
-
-Set `PJ_BIN_DIR` to choose a different absolute or home-relative location for an
-install, for example:
+The installer chooses a user bin directory and records it so later installs can
+migrate installer-owned launchers safely. Set `PJ_BIN_DIR` when you want a
+specific absolute or home-relative location:
 
 ```bash
-PJ_BIN_DIR='~/.local/bin' bash install.sh
 PJ_BIN_DIR='~/tools/bin' bash install.sh
 ```
 
-A new install starts with Codex as the `pj` default. Change or inspect that saved
-default with:
+Reinstalling preserves saved backend/model choices and user-owned guidance. The
+detailed installation and migration guarantees live in `AGENTS.md` and the
+regression suite rather than being duplicated here.
+
+## Configure the backend and model
+
+Inspect or change the saved default backend:
 
 ```bash
-pj --set-default antigravity
-pj --set-default copilot
-pj --set-default codex
 pj --show-default
+pj --set-default codex
+pj --set-default copilot
+pj --set-default antigravity
 ```
 
-The saved choice lives at `${XDG_CONFIG_HOME:-~/.config}/pj/default-backend` and
-is preserved when the installer is rerun. `PJ_DEFAULT_BACKEND` can override the
-saved default for the current environment, while `PJ_BACKEND` remains the
-one-run generic `pj` override. An explicit `--backend` flag has the highest
-precedence and can also override a shorthand launcher.
-
-### Per-backend model defaults
-
-`pj` keeps model selection separate for each backend. Built-in model defaults are:
-
-- Codex: `gpt-5.6-luna`, with `xhigh` reasoning effort;
-- Copilot: `mai-code-1.1-flash`;
-- Antigravity: provider default, unpinned.
-
-Inspect and configure model choices with:
+Inspect or change per-backend model choices:
 
 ```bash
 pj --show-models
 pj --show-model codex
-pj --set-model codex gpt-5.6-luna
+pj --set-model codex MODEL
 pj --reset-model codex
 ```
 
-Environment variables `PJ_CODEX_MODEL`, `PJ_COPILOT_MODEL` and `PJ_ANTIGRAVITY_MODEL`
-override saved and built-in defaults for one invocation.
+`PJ_DEFAULT_BACKEND` overrides the saved default for the current environment;
+`PJ_BACKEND` is a one-run generic launcher override. `PJ_CODEX_MODEL`,
+`PJ_COPILOT_MODEL` and `PJ_ANTIGRAVITY_MODEL` similarly override model selection
+for one invocation.
 
-## Managed agent guidance
+## Run
 
-The installer maintains bounded `pj` blocks in `~/AGENTS.md` and `${PJ_WORKSPACE:-~/planning}/AGENTS.md`. The home-level file is the canonical cross-agent user guidance: it tells agents about local operator maintenance, including the shared skill updater, and contains user-level rules that apply regardless of backend. The workspace-level file gives every backend the same natural-language GitHub task and Project vocabulary for conversational follow-ups. It tells the agent to resolve the target managed repository, read that repository's own `AGENTS.md` and `.projects` contract, follow `github-projects`, and independently verify mutations. Content outside the managed blocks is preserved on reinstall.
-
-Where it is safe to do so, the installer links each backend's documented user-level instruction entrypoint back to the same canonical `~/AGENTS.md`:
-
-```text
-~/.codex/AGENTS.md                  -> ~/AGENTS.md
-~/.copilot/copilot-instructions.md -> ~/AGENTS.md
-~/.gemini/GEMINI.md                -> ~/AGENTS.md
-```
-
-The installer chooses the least surprising migration for each backend entrypoint:
-
-- an absent, empty or installer-owned file becomes a symlink to `~/AGENTS.md`;
-- a regular file with genuine backend-specific content remains a regular file,
-  keeps that content and its mode, and receives one hard-updated copy of the
-  canonical managed block at the existing block position; and
-- an unrelated symlink or non-file path is preserved unchanged and reported.
-
-Known older installer-managed blocks are removed during either migration. A
-reinstall refreshes, rather than duplicates, the managed block. This lets a
-straightforward installation use one physical file while respecting an existing
-backend-specific arrangement.
-
-`~/AGENTS.md`, the workspace `AGENTS.md` and the Codex rules file may themselves
-be symlinks into a dotfiles checkout. The installer writes through those links,
-keeps them in place and preserves each target file's mode. It stops on a broken
-managed-file or backend instruction symlink, because success would otherwise be
-misleading.
-
-## Optional `agy` delegation
-
-The canonical home guidance advertises `agy` as an opt-in external subagent to Codex and GitHub Copilot CLI only. Antigravity itself must not invoke `agy` recursively under this facility. Codex or Copilot may delegate bounded mechanical or investigative work only after the operator explicitly authorises `agy` for the current task or conversation. Conversation-level authorisation covers repeated useful calls without repeated prompts. The default delegated model is `gemini-3.8-flash-high`; the primary agent remains responsible for design, consequential decisions, verification and integration.
-
-Delegated repository inspection should pass the repository explicitly, for
-example:
+Prompt-launched terminal sessions stay conversational by default. Use `-o` or
+`--oneshot` in the leading `pj` option prefix for a single-turn run:
 
 ```bash
-agy -p "<self-contained delegated task>" \
-  --model gemini-3.8-flash-high \
-  --add-dir "/absolute/repository/root"
+pj "Review this repository"
+pj -o "Review this repository once"
+pjcp -o -- "Treat -this-fragment as prompt text"
 ```
 
-`--add-dir` registers the repository as an Antigravity workspace instead of
-requiring a broad global file-read permission.
+`pj` consumes only the contiguous leading prefix of recognised launcher options.
+The first ordinary token starts prompt text, so later dash-prefixed fragments are
+not re-parsed as `pj` flags. A leading `--` forces the remainder to prompt text;
+a later `--` can separate agent-specific options from the prompt.
 
-The installer also maintains a bounded Codex exec-policy rule in `~/.codex/rules/default.rules` allowing the `agy` executable. The natural-language opt-in rule in `~/AGENTS.md` still controls when Codex may choose to use it.
+## Administration queue
 
-## Conversational and one-shot sessions
-
-Prompt-launched terminal sessions are conversational by default. Use `-o` (or `--oneshot`) anywhere in the leading `pj`-owned option prefix, before agent-specific options or prompt text, to force a single-turn run:
-
-```bash
-pj -o "Update the issue and verify it"
-pjcp -o -- "Check this Project state once"
-```
-
-`pj` stops ingesting launcher options at the first token that is not a recognised `pj` option or a required value for one. From that point, later dash-prefixed fragments are not reconsidered as launcher flags. For agent-specific options, a literal `--` remains the unambiguous separator when an option takes a separate non-dash value.
-
-## Update the shared Project skill everywhere
-
-The canonical entry point is:
-
-```bash
-pj --update-skill
-```
-
-A legacy `pj-update-skills` shim remains for older shell setups, but the maintained interface is `pj --update-skill`. Run it when you want to refresh `github-projects` across the managed repositories under `${PJ_WORKSPACE:-~/planning}`. The updater:
-
-1. resolves each repository's real default branch - the hosting provider's answer, then the remote HEAD recorded by the clone, then `main`/`master` - instead of treating whichever branch happens to be checked out as the target;
-2. fetches the remote and refreshes the skill on a temporary, isolated worktree of that default branch, so the operator's checked-out branch, index and dirty working state are never touched;
-3. reconciles the installed `github-projects` copy with canonical `main`, reinstalling it with `gh skill install ... --pin main` when it is missing, still sourced from `MiguelRodo/projects`, pinned to an older ref such as `refs/tags/v0.3.0`, or carrying the tree SHA of an older canonical `main`;
-4. commits only the resulting skill refresh as `Update github-projects skill`;
-5. pushes the commit directly to the default branch when repository rules allow it, fast-forwarding the operator's own checkout when it already sits on that branch and git can apply the fast-forward without disturbing local work; and
-6. when repository rules reject the direct push, preserves the same commit on the `pj/update-github-projects-skill` branch, pushes it and opens a pull request targeting the default branch, reusing an existing open skill-update pull request on reruns instead of opening a duplicate or leaving the local default branch ahead, and rewriting that branch when it no longer carries only `.agents/skills` changes.
-
-The installed copy's own metadata decides whether it is current. `gh skill update github-projects --all` is not treated as the source of truth: it reports a tag-pinned copy as "All skills are up to date", and an unpinned `gh skill install` resolves the latest tagged release before the default branch, so the updater pins its reinstall to `main` and compares the recorded tree SHA with the canonical `main` checkout it just synced.
-
-The canonical `github-projects-skill` repository is special-cased: it is not asked to install its own skill, and it is never merged or pushed on its protected `main`. When the remote has simply moved ahead it is fast-forwarded; when its history has diverged from the remote it is left untouched and reported as a failure instead of manufacturing a merge commit. A repository that cannot resolve its default branch, merge, update, push or restore its stash is reported as a failure rather than silently treated as successful.
-
-Agents launched under the home or planning `AGENTS.md` guidance are told to use `pj --update-skill` when the operator explicitly asks them to update the shared skill across local repositories, instead of building another one-off shell loop.
-
-## Chat administration queue
-
-These compatibility forms are equivalent:
+These compatibility forms select the same administrative queue:
 
 ```bash
 pj -i
@@ -171,77 +89,22 @@ pj --implement-issues
 pj --implement-chat
 ```
 
-Despite the historical option and label names, queue mode is
-**administrative-only**. It asks the selected backend to process
-`pj:implement-chat` queue items — temporary administrative handoffs and existing
-task issues that need administrative reconciliation — using `github-projects`
-and the managed repositories discovered from local `.projects` contracts.
+Queue mode is administrative-only by effect. It may administer GitHub issues and
+Projects, but it does not perform or delegate the substantive task represented by
+an issue. The canonical `github-projects` skill and each repository's resolved
+`.projects` contract own routing, authority, mutation and readback semantics;
+`pj` only orchestrates them.
 
-That boundary is an **effect boundary, not a request-type filter**. Queue mode
-may freely use the `projects` CLI, `gh`, REST, GraphQL and shell or Python
-helpers; what is constrained is the effect those mechanisms produce. The
-resulting effects must be GitHub issue or Project administration, and ordinary
-task prose such as "Build X", "Implement Y", "Fix Z", "Measure A", "Analyse B"
-or "Test C" describes the work a task represents. It is not an instruction for
-queue mode to perform that work, and it must not cause the item's administration
-to be skipped.
-
-Queue mode therefore administers and verifies every separable authorised
-GitHub issue/Project operation while leaving the substantive task untouched. It
-must never edit application or repository files for the underlying task,
-implement product, code or configuration changes, run implementation tests
-merely to do the task, collect measurements or perform task-requested research,
-analysis or data work, create implementation branches or pull requests, or
-delegate the substantive task to another coding agent. When an item contains
-both substantive and administrative work, the administrative portion is
-performed and independently verified rather than the whole item being skipped.
-Substantive work still requires a separate explicit non-queue invocation.
-
-Authority follows the canonical skill's resolved governance rather than a second
-launcher-level model. The "currently authenticated user" is the GitHub account
-reported by the local authenticated `gh` session used by `pj`. Under checked
-solo or personal administration, a trusted task issue authored by that account
-and carrying the configured queue label may use the skill's streamlined
-reconciliation path. Under collaborative or shared governance, or when
-governance is missing or ambiguous, the stronger rule applies: an unedited
-authority comment beginning exactly with `PJ implementation authority:` must
-state the bounded administrative delta itself rather than referring back to
-mutable issue-body text. Temporary handoffs always use that stronger path.
-
-Completion follows the item's shape. A temporary handoff is unlabelled and
-closed after independent verification. An ordinary task issue is unlabelled when
-appropriate once its administration is verified, but is not closed merely
-because its administration is complete.
-
-Queue discovery may be narrowed independently by repository, Project and
-sub-project selectors. Repository selection keeps the existing `-r` / `--repo`
-forms; Project and sub-project selection use `--project` and `--subproject`.
-When several selectors are supplied they combine by intersection:
+Narrow the queue by repository, Project or configured sub-project. Selectors
+combine by intersection:
 
 ```bash
-pj -i -r projects
-pj -i --repo issues
-pj -i --repo MiguelRodo/issues --project personal
+pj -i --repo MiguelRodo/issues
 pj -i --project personal --subproject monitoring
-pj -i --subproject monitoring
+pj -i --repo MiguelRodo/issues --project personal --subproject monitoring
 ```
 
-A bare repository selector such as `issues` matches every managed issue
-repository with that exact repository name regardless of owner. An
-`owner/repo` selector matches that exact managed repository. Project selectors
-match exact managed Project identities from the local contracts; sub-project
-selectors match exact configured sub-project keys. Matching never broadens
-beyond scopes declared by local managed-project contracts, and queue discovery
-considers open issues only.
-
-Queue mode runs the canonical `github-projects` deterministic preflight
-before model startup. If the selected managed scope is empty or unmatched,
-`pj` exits successfully without launching Codex, Copilot or Antigravity. A
-ready preflight supplies the exact candidate identity, local repository root and
-resolved contract path to the canonical queue executor; `pj` does not parse the
-contract itself.
-
-The default queue agent policy is `auto`:
+The default agent policy is deterministic-first `auto`:
 
 ```bash
 pj -i --agent=auto
@@ -249,43 +112,45 @@ pj -i --agent=before
 pj -i --agent=after
 ```
 
-- `auto` runs deterministic execution first. If every candidate finishes as
-  `applied_verified`, `pj` exits without starting a model. Only
-  `needs_agent` fallback packets and mandatory `review_required` packets start
-  an agent.
-- `before` deliberately bypasses deterministic execution and gives the
-  preflight-bounded candidates to the agent.
-- `after` runs deterministic processing first and then starts the agent with
-  the exact receipts, including completed and hard-stop evidence.
+`auto` runs the canonical deterministic path first and starts a model only when
+canonical fallback or review is required. `before` deliberately gives the
+preflight-bounded work to an agent before deterministic execution. `after` runs
+deterministic processing first and then starts an agent with the resulting
+receipts. Hard-stop receipts are not retry authority.
 
-`blocked` and `partial_failure` receipts are not fallback authority. In
-`auto` they stop the run without model startup when no separate item needs
-agent fallback/review. If an agent is started for another item, those receipts
-may be inspected or reported but their mutations must not be silently retried
-through another surface.
+If the installed canonical queue tooling is unavailable, `pj` keeps processing
+bounded and tells the operator to refresh the shared skill rather than inventing
+GitHub Project semantics locally.
 
-Queue mode composes with other `pj`-owned options in the leading prefix:
+## Update the shared Project skill
+
+Use the maintained updater entry point:
 
 ```bash
-pj -o -i -r projects
-pj -i -o --project personal
-pj -i --repo MiguelRodo/issues --project personal --subproject monitoring --oneshot
-pj -i --agent=auto --repo MiguelRodo/issues --project personal --subproject monitoring
+pj --update-skill
 ```
 
-The launcher remains orchestration-only. It invokes the installed canonical
-`github-projects` preflight and executor; matching, trust, authority, contract
-interpretation, administrative mutations, mandatory item review and independent
-readback remain in that skill. If the preflight or deterministic executor is
-missing, `pj` preserves bounded agent processing and tells the operator to run
-`pj --update-skill` instead of guessing those semantics locally. The launcher
-still injects the no-substantive-task rule directly as defence in depth against
-stale installed guidance; that rule is effect-based, so it cannot re-introduce
-a request-type skip.
+It refreshes `github-projects` across managed repositories while preserving the
+operator's checked-out work and respecting protected branches. The legacy
+`pj-update-skills` command remains only as a compatibility shim. Detailed updater
+safety and branch-handling contracts live in `AGENTS.md` and the updater tests.
+
+## Managed agent guidance
+
+The installer maintains bounded blocks in `~/AGENTS.md` and
+`${PJ_WORKSPACE:-~/planning}/AGENTS.md`, preserving unrelated user content and
+handling backend instruction entry points conservatively. The home block carries
+user-level operator rules. The workspace block is only a dispatcher into the
+target repository's `AGENTS.md`, resolved `.projects` contract and installed
+`github-projects` skill.
+
+The home guidance also contains the opt-in `agy` delegation policy. Treat that
+installed guidance as authoritative rather than copying its safety and permission
+rules into this README.
 
 ## Testing
 
-Run the test suite offline:
+Run the complete offline suite:
 
 ```bash
 for f in tests/*.sh; do bash "$f"; done
