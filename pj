@@ -206,33 +206,47 @@ if [ "${1:-}" = "--reset-model" ] || [ "${1:-}" = "--clear-model" ]; then
   reset_backend_model "$@"
 fi
 
-if [ "${1:-}" = "--add-skill" ]; then
+if [ "${1:-}" = "--init" ] || [ "${1:-}" = "--add-skill" ]; then
+  skill_command="$1"
   shift
   if [ "$#" -gt 0 ]; then
-    echo "pj: --add-skill does not take arguments; run it from the repository that should receive the skill" >&2
+    echo "pj: $skill_command does not take arguments; run it from the repository that should receive the skill" >&2
     exit 2
   fi
 
   target_repo="$(git -C "$launch_dir" rev-parse --show-toplevel 2>/dev/null)" || {
-    echo "pj: --add-skill must be run from inside the target Git repository" >&2
+    echo "pj: $skill_command must be run from inside the target Git repository" >&2
     exit 1
   }
 
   if [ -f "$target_repo/.agents/skills/github-projects/SKILL.md" ]; then
-    echo "pj: $target_repo already has github-projects; use 'pj --update-skill' to refresh it"
-    exit 0
+    if [ "$skill_command" = "--add-skill" ]; then
+      echo "pj: $target_repo already has github-projects; use 'pj --update-skill' to refresh it"
+      exit 0
+    fi
+    echo "pj: $target_repo already has github-projects; continuing with project initialisation"
+  else
+    if [ -e "$target_repo/.agents/skills/github-project-admin" ]; then
+      echo "pj: $target_repo has the legacy github-project-admin skill; use 'pj --update-skill' to migrate it" >&2
+      exit 1
+    fi
+
+    if ! (cd "$target_repo" && gh skill install MiguelRodo/github-projects-skill github-projects --agent universal --scope project --pin main); then
+      exit 1
+    fi
+    echo "pj: added github-projects to $target_repo"
   fi
 
-  if [ -e "$target_repo/.agents/skills/github-project-admin" ]; then
-    echo "pj: $target_repo has the legacy github-project-admin skill; use 'pj --update-skill' to migrate it" >&2
-    exit 1
+  if [ "$skill_command" = "--init" ]; then
+    init_script="$target_repo/.agents/skills/github-projects/scripts/init-project.sh"
+    if [ ! -f "$init_script" ]; then
+      echo "pj: github-projects is installed but its init-project.sh is missing; run 'pj --update-skill' and retry" >&2
+      exit 1
+    fi
+    cd "$target_repo" || exit 1
+    exec bash "$init_script"
   fi
 
-  if ! (cd "$target_repo" && gh skill install MiguelRodo/github-projects-skill github-projects --agent universal --scope project --pin main); then
-    exit 1
-  fi
-
-  echo "pj: added github-projects to $target_repo"
   if [ ! -f "$target_repo/.projects/project.md" ]; then
     echo "pj: next: cd '$target_repo' && bash .agents/skills/github-projects/scripts/init-project.sh"
   fi
