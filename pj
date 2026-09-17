@@ -77,7 +77,7 @@ configured_model() {
       builtin_value=""
       ;;
     copilot)
-      environment_value="${PJ_COPILOT_MODEL:-${COPILOT_MODEL:-}}"
+      environment_value="${PJ_COPILOT_MODEL:-}"
       builtin_value="mai-code-1.1-flash"
       ;;
   esac
@@ -94,6 +94,11 @@ configured_model() {
       printf '%s\n' "$saved_value"
       return
     fi
+  fi
+
+  if [ "$backend_value" = "copilot" ] && [ -n "${COPILOT_MODEL:-}" ]; then
+    printf '%s\n' "$COPILOT_MODEL"
+    return
   fi
 
   printf '%s\n' "$builtin_value"

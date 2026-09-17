@@ -209,6 +209,9 @@ assert_contains "$copilot_alias" '<-p>'
 assert_not_contains "$copilot_alias" '<-i>'
 assert_contains "$copilot_alias" '<Create the issue - with a dash>'
 
+copilot_cli_env_model="$(COPILOT_MODEL=cli-copilot-model run_named pjcp 'Use COPILOT_MODEL environment variable')" || exit 1
+assert_contains "$copilot_cli_env_model" '<cli-copilot-model>'
+
 # Forced interactive mode mirrors terminal behaviour: Copilot seeds an
 # interactive session and Antigravity seeds one headless turn then resumes it.
 copilot_interactive="$(PJ_SESSION_MODE=interactive run_named pjcp 'Keep this conversation open')" || exit 1
@@ -271,9 +274,6 @@ assert_contains "$codex_custom_model" '<model_reasoning_effort="xhigh">'
 
 copilot_env_model="$(PJ_COPILOT_MODEL=env-copilot-model run_named pjcp 'Use environment Copilot model')" || exit 1
 assert_contains "$copilot_env_model" '<env-copilot-model>'
-
-copilot_cli_env_model="$(COPILOT_MODEL=cli-copilot-model run_named pjcp 'Use COPILOT_MODEL environment variable')" || exit 1
-assert_contains "$copilot_cli_env_model" '<cli-copilot-model>'
 
 agy_env_model="$(PJ_ANTIGRAVITY_MODEL=env-agy-model run_named pja 'Use environment Antigravity model')" || exit 1
 assert_contains "$agy_env_model" '<env-agy-model>'
