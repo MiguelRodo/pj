@@ -271,37 +271,21 @@ write_home_context_block() {
 ## Local `pj` operator maintenance
 
 The shared local planning workspace is `${PJ_WORKSPACE:-~/planning}`. When the
-operator explicitly asks to update or refresh the installed
-`github-projects` skill across the managed repositories in that workspace,
-run `pj --update-skill` rather than constructing an ad hoc repository loop.
-
-The `pj --update-skill` path resolves each repository's real default branch
-(preferring the hosting provider's answer over whichever branch is checked out),
-refreshes the installed `github-projects` skill on an isolated worktree of that
-branch, and commits only the skill refresh, reinstalling tag-pinned copies
-instead of trusting the update command's success message. The operator's
-checked-out branch and dirty working state are never touched; a checkout that
-already sits on the default branch is fast-forwarded afterwards whenever git can
-do so without disturbing local work.
-An unprotected default branch receives the skill-only commit directly. When
-repository rules reject that direct push, the commit is preserved on a dedicated
-`pj/update-github-projects-skill` branch, pushed, and handed over through a pull
-request targeting the default branch; a rerun reuses the existing open
-skill-update pull request instead of opening another one, rewriting that branch
-if it ever gained changes outside `.agents/skills`, and protection is never
-bypassed. It never merges or pushes the canonical `github-projects-skill`
-repository's protected `main`; that checkout is fast-forwarded when possible and
-otherwise reported as a failure. If a repository cannot resolve its default
-branch, update, push or open its pull request, report the exact repository and
-error rather than claiming the whole update succeeded.
+operator explicitly asks to update or refresh the installed `github-projects`
+skill across the managed repositories in that workspace, run `pj --update-skill`
+rather than constructing an ad hoc repository loop. That updater preserves the
+operator's checked-out work, targets each repository's real default branch and
+uses its normal protected-branch handoff when a direct update is not allowed.
+Report updater failures rather than treating a partial refresh as success.
 
 The legacy `pj-update-skills` launcher remains as a compatibility shim for older
 shell setup, but the canonical entry point is `pj --update-skill`.
 
 For ordinary GitHub task and Project administration, continue into the planning
 workspace and follow its `AGENTS.md`, then the resolved repository's own
-`AGENTS.md` and `.projects` contract. This home-level block is operator routing,
-not a replacement for repository-specific guidance.
+`AGENTS.md`, `.projects` contract and shared `github-projects` skill. This
+home-level block is operator routing, not a replacement for repository-specific
+guidance.
 
 ## Optional `agy` subagent delegation
 
@@ -416,42 +400,27 @@ update_managed_block \
 ## Shared `pj` planning workspace
 
 This directory is the shared local operator workspace used by `pj`. Natural-language
-requests to add, update, close or organise GitHub issues, change GitHub Project
-fields or membership, or process Chat queue items are GitHub task and
-Project-administration requests. Queue mode is administrative-only and never
-authorises repository code or configuration changes; implementation requires a
-separate explicit non-queue request. That boundary is an effect boundary, not a
-request-type filter: ordinary task prose such as "build X" or "measure Y"
-describes the work the task represents and must not cause the item's
-administration to be skipped.
+requests to administer GitHub issues or Projects, including requests such as
+"process the queued administration handoffs for X", must resolve only through
+the managed repositories and `.projects` contracts available in this workspace.
 
-For each such request:
+For each target, read its root `AGENTS.md`, its resolved `.projects` contract and
+the shared `github-projects` skill named by that guidance. Those sources own
+routing, authority, trust, mutation and independent readback semantics. Do not
+recreate that policy in this dispatcher.
 
-1. resolve the target only from the managed repositories and `.projects`
-   contracts available in this workspace;
-2. read and follow the target repository's root `AGENTS.md`;
-3. read `.projects/project.md` plus the one Project contract it resolves and use
-   the shared `github-projects` skill named by the repository guidance;
-4. interpret ordinary phrases such as "add an issue to X", "set this to P3" or
-   "process the queued administration handoffs for X" through those checked
-   contracts rather than inventing provider-specific task logic;
-5. preserve unrelated state, stop on consequential ambiguity, and independently
-   read back every completed GitHub mutation before reporting success.
+Queue mode is administrative-only by effect and must not perform or delegate the
+substantive task represented by an issue. For queue requests, follow
+`github-projects`'s `references/local-implementation-queue.md`; any repository,
+Project or sub-project supplied by the operator only narrows the managed scope.
 
-If the operator explicitly asks to update or refresh `github-projects`
-across the local managed repositories, use `pj --update-skill`. Do not recreate a
-one-off loop unless that installed updater is unavailable. Treat this as local
-operator maintenance rather than an issue or Project mutation.
-
-For queue requests, follow `github-projects`'s
-`references/local-implementation-queue.md`, including its effect-boundary,
-authority, trust and review rules.
-A repository or Project name supplied by the operator narrows resolution to the
-corresponding managed target; do not broaden to arbitrary accessible repositories.
+If the operator explicitly asks to update or refresh `github-projects` across the
+local managed repositories, use `pj --update-skill` rather than constructing a
+one-off loop.
 
 This workspace-level guidance is only a dispatcher. A target repository's own
-`AGENTS.md`, `.projects` contract and current GitHub state remain authoritative
-for that target.
+`AGENTS.md`, `.projects` contract, installed skill and current GitHub state remain
+authoritative for that target.
 <!-- pj-managed-projects:end -->
 EOF_CONTEXT
 
