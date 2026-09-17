@@ -26,6 +26,14 @@ canonical_backend() {
   esac
 }
 
+backend_or_error() {
+  canonical_backend "$1" || {
+    echo "pj: unsupported backend: $1" >&2
+    echo "pj: supported backends: codex, antigravity, copilot" >&2
+    return 2
+  }
+}
+
 configured_default_backend() {
   if [ -n "${PJ_DEFAULT_BACKEND:-}" ]; then
     canonical_backend "$PJ_DEFAULT_BACKEND" || return 1
@@ -49,67 +57,37 @@ set_default_backend() {
     exit 2
   fi
 
-  backend_value="$(canonical_backend "$1")" || {
-    echo "pj: unsupported backend: $1" >&2
-    echo "pj: supported backends: codex, antigravity, copilot" >&2
-    exit 2
-  }
-
+  backend_value="$(backend_or_error "$1")" || exit $?
   mkdir -p "$config_dir" || exit 1
   printf '%s\n' "$backend_value" > "$default_backend_file" || exit 1
   printf '%s\n' "$backend_value"
   exit 0
 }
 
-builtin_model() {
-  case "$1" in
-    codex)
-      printf 'gpt-5.6-luna\n'
-      ;;
-    copilot)
-      printf 'mai-code-1.1-flash\n'
-      ;;
-    antigravity)
-      # Stay unpinned so Antigravity can follow its own current/default model.
-      printf '\n'
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-environment_model() {
-  case "$1" in
-    codex)
-      printf '%s\n' "${PJ_CODEX_MODEL:-}"
-      ;;
-    antigravity)
-      printf '%s\n' "${PJ_ANTIGRAVITY_MODEL:-}"
-      ;;
-    copilot)
-      printf '%s\n' "${PJ_COPILOT_MODEL:-}"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-model_file_for_backend() {
-  printf '%s/%s\n' "$model_dir" "$1"
-}
-
 configured_model() {
   backend_value="$(canonical_backend "$1")" || return 1
+  case "$backend_value" in
+    codex)
+      environment_value="${PJ_CODEX_MODEL:-}"
+      builtin_value="gpt-5.6-luna"
+      ;;
+    antigravity)
+      environment_value="${PJ_ANTIGRAVITY_MODEL:-}"
+      # Stay unpinned so Antigravity can follow its own current/default model.
+      builtin_value=""
+      ;;
+    copilot)
+      environment_value="${PJ_COPILOT_MODEL:-}"
+      builtin_value="mai-code-1.1-flash"
+      ;;
+  esac
 
-  environment_value="$(environment_model "$backend_value")" || return 1
   if [ -n "$environment_value" ]; then
     printf '%s\n' "$environment_value"
     return
   fi
 
-  model_file="$(model_file_for_backend "$backend_value")"
+  model_file="$model_dir/$backend_value"
   if [ -f "$model_file" ]; then
     saved_value="$(cat "$model_file")"
     if [ -n "$saved_value" ]; then
@@ -118,15 +96,11 @@ configured_model() {
     fi
   fi
 
-  builtin_model "$backend_value"
+  printf '%s\n' "$builtin_value"
 }
 
 print_model_value() {
-  if [ -n "$1" ]; then
-    printf '%s\n' "$1"
-  else
-    printf 'provider-default\n'
-  fi
+  printf '%s\n' "${1:-provider-default}"
 }
 
 set_backend_model() {
@@ -135,12 +109,7 @@ set_backend_model() {
     exit 2
   fi
 
-  backend_value="$(canonical_backend "$1")" || {
-    echo "pj: unsupported backend: $1" >&2
-    echo "pj: supported backends: codex, antigravity, copilot" >&2
-    exit 2
-  }
-
+  backend_value="$(backend_or_error "$1")" || exit $?
   model_value="$2"
   if [ -z "$model_value" ]; then
     echo "pj: model must not be empty" >&2
@@ -148,7 +117,7 @@ set_backend_model() {
   fi
 
   mkdir -p "$model_dir" || exit 1
-  model_file="$(model_file_for_backend "$backend_value")"
+  model_file="$model_dir/$backend_value"
   printf '%s\n' "$model_value" > "$model_file" || exit 1
   printf '%s\t%s\n' "$backend_value" "$model_value"
   exit 0
@@ -160,12 +129,7 @@ show_backend_model() {
     exit 2
   fi
 
-  backend_value="$(canonical_backend "$1")" || {
-    echo "pj: unsupported backend: $1" >&2
-    echo "pj: supported backends: codex, antigravity, copilot" >&2
-    exit 2
-  }
-
+  backend_value="$(backend_or_error "$1")" || exit $?
   model_value="$(configured_model "$backend_value")" || exit 1
   print_model_value "$model_value"
   exit 0
@@ -179,11 +143,8 @@ show_backend_models() {
 
   for backend_value in codex antigravity copilot; do
     model_value="$(configured_model "$backend_value")" || exit 1
-    if [ -n "$model_value" ]; then
-      printf '%s\t%s\n' "$backend_value" "$model_value"
-    else
-      printf '%s\tprovider-default\n' "$backend_value"
-    fi
+    printf '%s\t' "$backend_value"
+    print_model_value "$model_value"
   done
   exit 0
 }
@@ -194,14 +155,8 @@ reset_backend_model() {
     exit 2
   fi
 
-  backend_value="$(canonical_backend "$1")" || {
-    echo "pj: unsupported backend: $1" >&2
-    echo "pj: supported backends: codex, antigravity, copilot" >&2
-    exit 2
-  }
-
-  model_file="$(model_file_for_backend "$backend_value")"
-  rm -f "$model_file" || exit 1
+  backend_value="$(backend_or_error "$1")" || exit $?
+  rm -f "$model_dir/$backend_value" || exit 1
   model_value="$(configured_model "$backend_value")" || exit 1
   printf '%s\t' "$backend_value"
   print_model_value "$model_value"
@@ -395,14 +350,18 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-backend="$(canonical_backend "$backend")" || {
-  echo "pj: unsupported backend: $backend" >&2
-  echo "pj: supported backends: codex, antigravity, copilot" >&2
-  exit 2
-}
+backend="$(backend_or_error "$backend")" || exit $?
 
 case "$session_mode" in
-  auto|interactive|oneshot)
+  interactive)
+    interactive=1
+    ;;
+  oneshot)
+    interactive=0
+    ;;
+  auto)
+    interactive=0
+    [ -t 0 ] && [ -t 1 ] && interactive=1
     ;;
   *)
     echo "pj: invalid PJ_SESSION_MODE: $session_mode" >&2
@@ -410,20 +369,6 @@ case "$session_mode" in
     exit 2
     ;;
 esac
-
-should_interact() {
-  case "$session_mode" in
-    interactive)
-      return 0
-      ;;
-    oneshot)
-      return 1
-      ;;
-    auto)
-      [ -t 0 ] && [ -t 1 ]
-      ;;
-  esac
-}
 
 valid_repo_selector() {
   selector="$1"
@@ -687,56 +632,41 @@ agent_args=()
 prompt=""
 has_prompt=0
 
-if [ "$#" -gt 0 ]; then
-  if [ "$1" = "--" ]; then
-    shift
-    if [ "$#" -gt 0 ]; then
-      prompt="$*"
-      has_prompt=1
+if [ "${1:-}" = "--" ]; then
+  shift
+elif [[ "${1:-}" == -* ]]; then
+  has_separator=0
+  for arg in "$@"; do
+    if [ "$arg" = "--" ]; then
+      has_separator=1
+      break
     fi
-  elif [[ "$1" == -* ]]; then
-    has_separator=0
-    for arg in "$@"; do
-      if [ "$arg" = "--" ]; then
-        has_separator=1
-        break
-      fi
-    done
+  done
 
-    if [ "$has_separator" -eq 1 ]; then
-      while [ "$#" -gt 0 ]; do
-        if [ "$1" = "--" ]; then
-          shift
-          if [ "$#" -gt 0 ]; then
-            prompt="$*"
-            has_prompt=1
-          fi
-          break
-        fi
-        agent_args+=("$1")
-        shift
-      done
-    else
-      while [ "$#" -gt 0 ] && [[ "$1" == -* ]]; do
-        agent_args+=("$1")
-        shift
-      done
-      if [ "$#" -gt 0 ]; then
-        prompt="$*"
-        has_prompt=1
-      fi
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--" ]; then
+      shift
+      break
     fi
-  else
-    prompt="$*"
-    has_prompt=1
-  fi
+    if [ "$has_separator" -eq 0 ] && [[ "$1" != -* ]]; then
+      break
+    fi
+    agent_args+=("$1")
+    shift
+  done
 fi
 
+if [ "$#" -gt 0 ]; then
+  prompt="$*"
+  has_prompt=1
+fi
+
+backend_model="$(configured_model "$backend")" || exit 1
+
 run_codex() {
-  codex_model="$(configured_model codex)" || exit 1
   defaults=(
     --approve-for-me
-    -m "$codex_model"
+    -m "$backend_model"
     -c 'model_reasoning_effort="xhigh"'
     -c 'sandbox_workspace_write.network_access=true'
   )
@@ -745,7 +675,7 @@ run_codex() {
     exec codex "${defaults[@]}" "${agent_args[@]}"
   fi
 
-  if should_interact; then
+  if [ "$interactive" -eq 1 ]; then
     # A positional prompt seeds the ordinary Codex TUI and leaves it open.
     exec codex "${defaults[@]}" "${agent_args[@]}" "$prompt"
   fi
@@ -755,13 +685,12 @@ run_codex() {
 }
 
 run_antigravity() {
-  antigravity_model="$(configured_model antigravity)" || exit 1
   defaults=(
     --effort high
     --dangerously-skip-permissions
   )
-  if [ -n "$antigravity_model" ]; then
-    defaults+=(--model "$antigravity_model")
+  if [ -n "$backend_model" ]; then
+    defaults+=(--model "$backend_model")
   fi
 
   print_timeout="${PJ_ANTIGRAVITY_TIMEOUT:-15m}"
@@ -774,7 +703,7 @@ run_antigravity() {
     exec agy "${defaults[@]}" "${agent_args[@]}"
   fi
 
-  if ! should_interact; then
+  if [ "$interactive" -eq 0 ]; then
     exec agy "${headless_defaults[@]}" "${agent_args[@]}" -p "$prompt"
   fi
 
@@ -792,20 +721,19 @@ run_antigravity() {
 }
 
 run_copilot() {
-  copilot_model="$(configured_model copilot)" || exit 1
   defaults=(
     --allow-all
   )
 
-  if [ -n "$copilot_model" ]; then
-    defaults+=(--model "$copilot_model")
+  if [ -n "$backend_model" ]; then
+    defaults+=(--model "$backend_model")
   fi
 
   if [ "$has_prompt" -eq 0 ]; then
     exec copilot "${defaults[@]}" "${agent_args[@]}"
   fi
 
-  if should_interact; then
+  if [ "$interactive" -eq 1 ]; then
     # Copilot's -i/--interactive flag executes the initial prompt and keeps the
     # interactive session open for subsequent turns.
     exec copilot "${defaults[@]}" "${agent_args[@]}" -i "$prompt"
