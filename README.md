@@ -12,18 +12,31 @@ for that tool.
 
 ## Install
 
-From the current v0 release line:
+On Debian or Ubuntu, after configuring the
+[`apt-miguelrodo`](https://github.com/MiguelRodo/apt-miguelrodo) repository,
+install or upgrade the released package with:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y pj
+```
+
+The APT package is imported from a versioned GitHub Release of `pj`; it does not
+track unreleased commits on `main`.
+
+Alternatively, with `setupmjr` installed:
+
+```bash
+setupmjr project --pj
+```
+
+`setupmjr` follows the floating `v0` release tag. For a direct checkout of that
+same release line:
 
 ```bash
 git clone --depth 1 --branch v0 --single-branch https://github.com/MiguelRodo/pj.git
 cd pj
 bash install.sh
-```
-
-Or, with `setupmjr` installed:
-
-```bash
-setupmjr project --pj
 ```
 
 The installer chooses a user bin directory and records it so later installs can
