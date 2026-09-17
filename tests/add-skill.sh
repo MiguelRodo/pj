@@ -2,12 +2,13 @@
 
 operator_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 pj="$operator_dir/pj"
+. "$operator_dir/tests/helpers.sh"
 tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 workspace="$tmp/home/planning"
 target="$tmp/target"
-mkdir -p "$workspace" "$target/subdir" "$tmp/bin" || exit 1
+mkdir -p "$target/subdir" "$tmp/bin" || exit 1
 
 git init -b main "$target" >/dev/null 2>&1 || exit 1
 
@@ -45,14 +46,8 @@ output="$(
 [ "$(cat "$pwd_log")" = "$target" ] || exit 1
 [ "$(cat "$args_log")" = '<skill><install><MiguelRodo/github-projects-skill><github-projects><--agent><universal><--scope><project><--pin><main>' ] || exit 1
 [ -f "$target/.agents/skills/github-projects/SKILL.md" ] || exit 1
-case "$output" in
-  *"pj: added github-projects to $target"*) ;;
-  *) exit 1 ;;
-esac
-case "$output" in
-  *"bash .agents/skills/github-projects/scripts/init-project.sh"*) ;;
-  *) exit 1 ;;
-esac
+assert_contains "$output" "pj: added github-projects to $target"
+assert_contains "$output" "bash .agents/skills/github-projects/scripts/init-project.sh"
 
 : > "$args_log"
 second="$(
@@ -65,10 +60,7 @@ second="$(
     bash "$pj" --add-skill
 )" || exit 1
 [ ! -s "$args_log" ] || exit 1
-case "$second" in
-  *"already has github-projects; use 'pj --update-skill' to refresh it"*) ;;
-  *) exit 1 ;;
-esac
+assert_contains "$second" "already has github-projects; use 'pj --update-skill' to refresh it"
 
 if (
   cd "$target" &&
@@ -109,10 +101,7 @@ init_output="$(
 [ "$(cat "$init_pwd_log")" = "$init_target" ] || exit 1
 [ "$(cat "$init_script_pwd_log")" = "$init_target" ] || exit 1
 [ "$(cat "$init_args_log")" = '<skill><install><MiguelRodo/github-projects-skill><github-projects><--agent><universal><--scope><project><--pin><main>' ] || exit 1
-case "$init_output" in
-  *"pj: added github-projects to $init_target"*) ;;
-  *) exit 1 ;;
-esac
+assert_contains "$init_output" "pj: added github-projects to $init_target"
 
 if (
   cd "$init_target" &&
