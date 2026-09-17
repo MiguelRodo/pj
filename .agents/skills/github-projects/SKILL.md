@@ -5,7 +5,7 @@ metadata:
     github-pinned: main
     github-ref: refs/heads/main
     github-repo: https://github.com/MiguelRodo/github-projects-skill
-    github-tree-sha: b8414e9058cc097a1d8d4f4f87a80566e6deb3f0
+    github-tree-sha: 3fa92d310ff1f5a5cb32f32149b2354c582c1ede
 name: github-projects
 ---
 # GitHub Project administration
