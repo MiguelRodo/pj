@@ -2,44 +2,21 @@
 
 operator_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 installer="$operator_dir/install.sh"
+. "$operator_dir/tests/helpers.sh"
 tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/home/planning" "$tmp/home/.local/bin" "$tmp/bin" || exit 1
 
-cat > "$tmp/bin/codex" <<'EOF'
-#!/usr/bin/env bash
-printf 'codex'
-for arg in "$@"; do
-  printf '\n<%s>' "$arg"
+for tool in codex agy copilot; do
+  write_arg_printer "$tmp/bin/$tool" "$tool" || exit 1
 done
-printf '\n'
-EOF
-
-cat > "$tmp/bin/agy" <<'EOF'
-#!/usr/bin/env bash
-printf 'agy'
-for arg in "$@"; do
-  printf '\n<%s>' "$arg"
-done
-printf '\n'
-EOF
-
-cat > "$tmp/bin/copilot" <<'EOF'
-#!/usr/bin/env bash
-printf 'copilot'
-for arg in "$@"; do
-  printf '\n<%s>' "$arg"
-done
-printf '\n'
-EOF
 
 cat > "$tmp/bin/projects" <<'EOF'
 #!/usr/bin/env bash
 printf 'projects\n'
 EOF
-
-chmod +x "$tmp/bin/codex" "$tmp/bin/agy" "$tmp/bin/copilot" "$tmp/bin/projects" || exit 1
+chmod +x "$tmp/bin/projects" || exit 1
 
 test_config_home="$tmp/home/.config"
 test_bin_dir="$tmp/home/.local/bin"
@@ -148,30 +125,6 @@ run_named() {
   name="$1"
   shift
   HOME="$tmp/home" XDG_CONFIG_HOME="$test_config_home" PATH="$test_bin_dir:$tmp/bin:$PATH" "$test_bin_dir/$name" "$@"
-}
-
-assert_contains() {
-  output="$1"
-  expected="$2"
-  case "$output" in
-    *"$expected"*) ;;
-    *)
-      printf 'Expected output to contain: %s\nActual output:\n%s\n' "$expected" "$output" >&2
-      exit 1
-      ;;
-  esac
-}
-
-assert_not_contains() {
-  output="$1"
-  unexpected="$2"
-  case "$output" in
-    *"$unexpected"*)
-      printf 'Expected output not to contain: %s\nActual output:\n%s\n' "$unexpected" "$output" >&2
-      exit 1
-      ;;
-    *) ;;
-  esac
 }
 
 # Tests run without a TTY, so auto session mode should use one-shot interfaces.
