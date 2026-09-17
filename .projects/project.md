@@ -35,17 +35,26 @@ This Project uses the common names directly.
 | P2 | P2 |
 | P3 | P3 |
 
+## Priority values
+
+| Option | Colour |
+| --- | --- |
+| P0 | RED |
+| P1 | ORANGE |
+| P2 | YELLOW |
+| P3 | PURPLE |
+
 ## Class values
 
 | Option | Colour |
 | --- | --- |
-| Task | YELLOW |
+| Task | GRAY |
 | Bug | RED |
 | Enhancement | GREEN |
 | Data | PINK |
 | Analysis | PURPLE |
 | Deliverable | ORANGE |
-| Documentation | GRAY |
+| Documentation | YELLOW |
 | Epic | BLUE |
 
 ## Status mapping
