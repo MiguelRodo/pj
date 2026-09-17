@@ -12,10 +12,10 @@ for that tool.
 
 ## Install
 
-From a local checkout:
+From the current v0 release line:
 
 ```bash
-git clone https://github.com/MiguelRodo/pj.git
+git clone --depth 1 --branch v0 --single-branch https://github.com/MiguelRodo/pj.git
 cd pj
 bash install.sh
 ```
