@@ -1,0 +1,59 @@
+name: Go Version and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+    paths:
+      - '.github/workflows/go-version-release.yml'
+      - '.goreleaser.yml'
+      - 'packaging/pj-update-skills'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact version (e.g. 1.2.3). Cannot be used with bump_type.'
+        required: false
+      bump_type:
+        description: 'Component to bump: major | minor | patch. Cannot be used with version.'
+        required: false
+      version_force:
+        description: 'Force specified version, ignoring strict version progression checks.'
+        required: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # One-time bootstrap so merging this workflow can create the first release.
+      # Once v0.1.0 exists this branch-push path is inert and can be removed.
+      - name: Check initial release
+        if: github.ref_type == 'branch'
+        id: bootstrap
+        shell: bash
+        run: |
+          if git show-ref --tags --verify --quiet refs/tags/v0.1.0; then
+            echo 'release=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'release=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish release
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || steps.bootstrap.outputs.release == 'true'
+        uses: MiguelRodo/actions/go-version-release@ea8f8df62048a1ae56a1e99a58580a0ac05b8e41 # v2.43.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          apt_repo_token: ${{ secrets.APT_REPO_TOKEN }}
+          apt_signing_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          version: ${{ github.ref_type == 'branch' && '0.1.0' || inputs.version }}
+          bump_type: ${{ inputs.bump_type }}
+          version_force: ${{ inputs.version_force }}
+          apt_repo: MiguelRodo/apt-miguelrodo
+          goreleaser_config: .goreleaser.yml
