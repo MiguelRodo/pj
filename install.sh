@@ -119,9 +119,9 @@ remove_previous_managed_install() {
 if [ -f "$install_bin_dir_file" ]; then
   previous_launcher_dir=""
   IFS= read -r previous_launcher_dir < "$install_bin_dir_file" || true
-  remove_previous_managed_install "$previous_launcher_dir"
+  remove_previous_managed_install "$previous_launcher_dir" || exit 1
 elif [ "$launcher_dir" != "$HOME/bin" ]; then
-  remove_previous_managed_install "$HOME/bin"
+  remove_previous_managed_install "$HOME/bin" || exit 1
 fi
 
 install -m 0755 "$launcher_source" "$launcher_target" || exit 1
