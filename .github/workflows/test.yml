@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run launcher offline and migration tests
         run: bash tests/run.sh
+      - name: Run pj help tests
+        run: bash tests/help.sh
       - name: Run add-skill tests
         run: bash tests/add-skill.sh
       - name: Run queue option tests
