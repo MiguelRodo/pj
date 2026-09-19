@@ -9,6 +9,63 @@ default_backend_file="$config_dir/default-backend"
 model_dir="$config_dir/models"
 session_mode="${PJ_SESSION_MODE:-auto}"
 
+usage() {
+  cat <<'EOF'
+Usage:
+  pj [pj options] [agent options] [--] [prompt]
+  pj -i [queue options]
+  pj --init
+  pj --add-skill
+  pj --update-skill
+
+Launchers:
+  pj              Use the configured default backend
+  pja             Use Google Antigravity
+  pjcp            Use GitHub Copilot CLI
+  pjcd            Use Codex
+
+PJ options:
+  -h, --help                         Show this help and exit
+  --backend BACKEND                  Use codex, antigravity, or copilot for this run
+  -o, --oneshot, --one-shot          Run one turn instead of keeping the terminal session open
+  --set-default BACKEND               Save the default backend
+  --show-default                      Show the configured default backend
+  --set-model BACKEND MODEL           Save a model override for a backend
+  --show-model BACKEND                Show the configured model for one backend
+  --show-models                       Show configured models for all backends
+  --reset-model BACKEND               Remove a saved model override
+  --clear-model BACKEND               Alias for --reset-model
+
+Queue options:
+  -i, --implement-issues,
+      --implement-chat                Process the administrative implementation queue
+  -r, --repo REPO                     Restrict queue processing to REPO or OWNER/REPO
+  --project PROJECT                   Restrict queue processing to a managed Project
+  --subproject SUBPROJECT             Restrict queue processing to a configured sub-project
+  --agent auto|before|after           Choose when an agent runs around deterministic processing
+
+Project setup:
+  --init                              Add/update project support and initialise this repository
+  --add-skill                         Add the github-projects skill to this repository
+  --update-skill                      Refresh managed github-projects skill installations
+
+Agent arguments and prompts:
+  Unrecognised leading dash options are forwarded to the selected backend.
+  A leading -- makes the rest prompt text. When a backend option takes a
+  separate non-dash value, use a later -- to separate backend options from the prompt.
+EOF
+}
+
+# Help belongs to pj, not whichever backend happens to be selected. Handle the
+# common forms before touching the workspace so `pj --help` also works when the
+# configured workspace is missing or inaccessible.
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 canonical_backend() {
   case "$1" in
     codex)
@@ -324,6 +381,10 @@ set_selector_once() {
 # ends pj-level parsing, so later dash-prefixed fragments belong to the request.
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
     --backend)
       if [ "$#" -lt 2 ]; then
         echo "pj: --backend requires a value" >&2
