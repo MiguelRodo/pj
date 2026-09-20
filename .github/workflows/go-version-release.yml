@@ -26,7 +26,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: MiguelRodo/actions/go-version-release@509750b862eeec82bd7596b81bca13b2bdfbcc3a # current v2 action
+      - uses: MiguelRodo/actions/go-version-release@bf850afe48d42ac221079cfede39021d0574c15a # v3.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           version: ${{ inputs.version }}
