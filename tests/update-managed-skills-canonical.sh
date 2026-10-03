@@ -22,7 +22,16 @@ mkdir -p "$fake_bin" || exit 1
 cat > "$fake_bin/gh" <<'EOF'
 #!/usr/bin/env bash
 
+if [ -n "${GH_SKILL_TEST_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$GH_SKILL_TEST_LOG"
+fi
+
 if [ "$1" = 'auth' ] && [ "$2" = 'status' ]; then
+  exit 0
+fi
+
+if [ "$1" = 'repo' ] && [ "$2" = 'view' ]; then
+  printf 'main\n'
   exit 0
 fi
 
@@ -55,6 +64,16 @@ fi
 if [ "$1" = 'skill' ] && [ "$2" = 'update' ] && \
    [ "$3" = 'github-projects' ] && [ "$4" = '--all' ]; then
   printf 'All skills are up to date\n'
+  exit 0
+fi
+
+if [ "$1" = 'pr' ] && [ "$2" = 'list' ]; then
+  # The tests exercise the branch-and-PR handoff from a clean slate.
+  exit 0
+fi
+
+if [ "$1" = 'pr' ] && [ "$2" = 'create' ]; then
+  printf '%s\n' "${GH_SKILL_TEST_PR_URL:-https://github.com/MiguelRodo/github-projects-skill/pull/1}"
   exit 0
 fi
 
@@ -228,6 +247,10 @@ grep -Fq 'diverged' "$tmp/scenario-b.out" || {
 [ "$(git --git-dir="$remote_b" rev-parse main)" = "$remote_head_b" ] || exit 1
 [ "$(cat "$ws_b/github-projects-skill/scratch.txt")" = 'uncommitted local work' ] || exit 1
 [ -z "$(git -C "$ws_b/github-projects-skill" stash list)" ] || exit 1
+grep -Eq 'Failed repositories: +1' "$tmp/scenario-b.out" || {
+  printf 'Scenario 2: expected the canonical failure to be counted as a failure.\n' >&2
+  exit 1
+}
 
 # ---------------------------------------------------------------------------
 # Scenario 3: managed repositories with stale installs. `gh skill update`
@@ -349,5 +372,222 @@ HOME="$tmp/home-c" \
 [ "$(git -C "$ws_c/stale_demo" rev-list --count HEAD)" = "$stale_commits" ] || exit 1
 [ "$(git -C "$ws_c/stale_main_demo" rev-list --count HEAD)" = "$stale_main_commits" ] || exit 1
 [ "$(git -C "$ws_c/current_demo" log -1 --pretty=%s)" = 'Initial current_demo repository' ] || exit 1
+
+# ---------------------------------------------------------------------------
+# Shared helpers for the canonical-repository self-install scenarios.
+# ---------------------------------------------------------------------------
+
+# Protect only refs/heads/main, like the real canonical repository, so the
+# updater's dedicated skill-update branch can still be pushed and recorded.
+protect_canonical_main_only() {
+  local bare="$1"
+  local log="$2"
+  cat > "$bare/hooks/pre-receive" <<EOF
+#!/usr/bin/env bash
+while read -r _old _new ref; do
+  if [ "\$ref" = 'refs/heads/main' ]; then
+    printf '%s\n' "\$ref" >> "$log"
+    printf 'protected main rejects direct pushes\n' >&2
+    exit 1
+  fi
+done
+exit 0
+EOF
+  chmod +x "$bare/hooks/pre-receive" || exit 1
+}
+
+write_canonical_skill() {
+  local root="$1"
+  mkdir -p "$root/skills/github-projects" || exit 1
+  cat > "$root/skills/github-projects/SKILL.md" <<'EOF'
+---
+description: canonical skill
+metadata:
+    github-path: skills/github-projects
+    github-ref: refs/heads/main
+    github-repo: https://github.com/MiguelRodo/github-projects-skill
+name: github-projects
+---
+# GitHub Project administration
+
+canonical main queue semantics
+EOF
+}
+
+write_self_installed_skill() {
+  local root="$1"
+  local ref="$2"
+  local tree_sha="$3"
+  local body="$4"
+  mkdir -p "$root/.agents/skills/github-projects" || exit 1
+  {
+    printf '%s\n' '---'
+    printf '%s\n' 'description: canonical skill'
+    printf '%s\n' 'metadata:'
+    printf '%s\n' '    github-path: skills/github-projects'
+    printf '    github-ref: %s\n' "$ref"
+    printf '%s\n' '    github-repo: https://github.com/MiguelRodo/github-projects-skill'
+    printf '    github-tree-sha: %s\n' "$tree_sha"
+    printf '%s\n' 'name: github-projects'
+    printf '%s\n' '---'
+    printf '%s\n' '# GitHub Project administration'
+    printf '\n'
+    printf '%s\n' "$body"
+  } > "$root/.agents/skills/github-projects/SKILL.md"
+}
+
+# ---------------------------------------------------------------------------
+# Scenario 4: the canonical repository's own installed copy is stale. The
+# updater must refresh it through the ordinary managed path: install with
+# --pin main, and because canonical main is protected, hand the skill-only
+# commit to the stable skill-update pull request instead of pushing to main.
+# ---------------------------------------------------------------------------
+ws_d="$tmp/ws-d/planning"
+mkdir -p "$ws_d" || exit 1
+remote_d="$tmp/canonical-d.git"
+seed_d="$tmp/canonical-d-seed"
+push_log_d="$tmp/canonical-d-pushes.log"
+gh_log_d="$tmp/gh-d.log"
+
+git init --bare "$remote_d" >/dev/null 2>&1 || exit 1
+git init -b main "$seed_d" >/dev/null || exit 1
+git_identity "$seed_d"
+write_canonical_skill "$seed_d"
+write_self_installed_skill "$seed_d" refs/heads/main \
+  0000000000000000000000000000000000000000 'old canonical semantics'
+git -C "$seed_d" add . || exit 1
+git -C "$seed_d" commit -m 'Canonical skill with stale self-install' >/dev/null || exit 1
+git -C "$seed_d" remote add origin "$remote_d" || exit 1
+git -C "$seed_d" push -u origin main >/dev/null 2>&1 || exit 1
+git --git-dir="$remote_d" symbolic-ref HEAD refs/heads/main || exit 1
+
+git clone "$remote_d" "$ws_d/github-projects-skill" >/dev/null 2>&1 || exit 1
+git_identity "$ws_d/github-projects-skill"
+main_before_d="$(git --git-dir="$remote_d" rev-parse main)"
+
+protect_canonical_main_only "$remote_d" "$push_log_d"
+
+output_d="$(GH_SKILL_TEST_LOG="$gh_log_d" \
+  GH_SKILL_TEST_CANONICAL_DIR="$ws_d/github-projects-skill" \
+  HOME="$tmp/home-d" \
+  PJ_WORKSPACE="$ws_d" \
+  PATH="$fake_bin:/usr/bin:/bin" \
+  bash "$updater" 2>&1)" || {
+  printf 'Scenario 4: updater failed unexpectedly:\n%s\n' "$output_d" >&2
+  exit 1
+}
+
+case "$output_d" in
+  *'installed github-projects copy is stale; refreshing it like a managed repository.'*) ;;
+  *)
+    printf 'Scenario 4: expected the canonical self-install to be refreshed.\nActual output:\n%s\n' "$output_d" >&2
+    exit 1
+    ;;
+esac
+
+grep -Fq 'skill install MiguelRodo/github-projects-skill github-projects --agent universal --scope project --force --pin main' "$gh_log_d" || {
+  printf 'Scenario 4: expected a --pin main install for the canonical self-copy.\n' >&2
+  exit 1
+}
+grep -Fq 'refs/heads/main' "$push_log_d" || {
+  printf 'Scenario 4: expected the direct main push to be attempted and rejected.\n' >&2
+  exit 1
+}
+grep -Fq 'Opened skill-update pull request:' <<<"$output_d" || {
+  printf 'Scenario 4: expected the refresh to be handed to a pull request.\nActual output:\n%s\n' "$output_d" >&2
+  exit 1
+}
+
+canonical_tree_sha_d="$(git -C "$ws_d/github-projects-skill" rev-parse refs/remotes/origin/main:skills/github-projects)" || exit 1
+git --git-dir="$remote_d" show refs/heads/pj/update-github-projects-skill:.agents/skills/github-projects/SKILL.md \
+  > "$tmp/pr-skill-d.md" 2>/dev/null || {
+  printf 'Scenario 4: the skill-update branch was not pushed to the canonical remote.\n' >&2
+  exit 1
+}
+grep -Fq "github-tree-sha: $canonical_tree_sha_d" "$tmp/pr-skill-d.md" || exit 1
+grep -Fq 'canonical main queue semantics' "$tmp/pr-skill-d.md" || exit 1
+! grep -Fq 'old canonical semantics' "$tmp/pr-skill-d.md" || exit 1
+
+# Canonical main is untouched: no merge commit, no skill commit pushed to it.
+[ "$(git --git-dir="$remote_d" rev-parse main)" = "$main_before_d" ] || {
+  printf 'Scenario 4: canonical main moved.\n' >&2
+  exit 1
+}
+[ "$(git -C "$ws_d/github-projects-skill" rev-list --count --merges HEAD)" = '0' ] || exit 1
+
+grep -Fq 'Updated repositories:   1' <<<"$output_d" || {
+  printf 'Scenario 4: expected the refresh to count as updated.\nActual output:\n%s\n' "$output_d" >&2
+  exit 1
+}
+grep -Fq 'Skill-update PRs:       1 opened, 0 reused' <<<"$output_d" || {
+  printf 'Scenario 4: expected the opened PR to be counted.\nActual output:\n%s\n' "$output_d" >&2
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Scenario 5: the canonical repository's own installed copy already matches
+# canonical main, so nothing is installed and nothing is pushed.
+# ---------------------------------------------------------------------------
+ws_e="$tmp/ws-e/planning"
+mkdir -p "$ws_e" || exit 1
+remote_e="$tmp/canonical-e.git"
+seed_e="$tmp/canonical-e-seed"
+push_log_e="$tmp/canonical-e-pushes.log"
+gh_log_e="$tmp/gh-e.log"
+
+git init --bare "$remote_e" >/dev/null 2>&1 || exit 1
+git init -b main "$seed_e" >/dev/null || exit 1
+git_identity "$seed_e"
+write_canonical_skill "$seed_e"
+git -C "$seed_e" add . || exit 1
+git -C "$seed_e" commit -m 'Canonical skill' >/dev/null || exit 1
+current_tree_sha_e="$(git -C "$seed_e" rev-parse HEAD:skills/github-projects)" || exit 1
+write_self_installed_skill "$seed_e" refs/heads/main "$current_tree_sha_e" \
+  'canonical main queue semantics'
+git -C "$seed_e" add . || exit 1
+git -C "$seed_e" commit -m 'Canonical self-install matching main' >/dev/null || exit 1
+git -C "$seed_e" remote add origin "$remote_e" || exit 1
+git -C "$seed_e" push -u origin main >/dev/null 2>&1 || exit 1
+git --git-dir="$remote_e" symbolic-ref HEAD refs/heads/main || exit 1
+
+git clone "$remote_e" "$ws_e/github-projects-skill" >/dev/null 2>&1 || exit 1
+git_identity "$ws_e/github-projects-skill"
+main_before_e="$(git --git-dir="$remote_e" rev-parse main)"
+head_before_e="$(git -C "$ws_e/github-projects-skill" rev-parse HEAD)"
+
+protect_canonical_main_only "$remote_e" "$push_log_e"
+
+output_e="$(GH_SKILL_TEST_LOG="$gh_log_e" \
+  GH_SKILL_TEST_CANONICAL_DIR="$ws_e/github-projects-skill" \
+  HOME="$tmp/home-e" \
+  PJ_WORKSPACE="$ws_e" \
+  PATH="$fake_bin:/usr/bin:/bin" \
+  bash "$updater" 2>&1)" || {
+  printf 'Scenario 5: updater failed unexpectedly:\n%s\n' "$output_e" >&2
+  exit 1
+}
+
+grep -Fq 'Canonical skill repository: installed github-projects copy already matches canonical main.' <<<"$output_e" || {
+  printf 'Scenario 5: expected an already-current report.\nActual output:\n%s\n' "$output_e" >&2
+  exit 1
+}
+! grep -Fq 'skill install' "$gh_log_e" || {
+  printf 'Scenario 5: the current canonical self-copy was reinstalled.\n' >&2
+  exit 1
+}
+[ ! -e "$push_log_e" ] || {
+  printf 'Scenario 5: a push was attempted for a current canonical self-copy.\n' >&2
+  exit 1
+}
+! git --git-dir="$remote_e" show-ref --verify --quiet refs/heads/pj/update-github-projects-skill || {
+  printf 'Scenario 5: a skill-update branch was created for a current self-copy.\n' >&2
+  exit 1
+}
+[ "$(git --git-dir="$remote_e" rev-parse main)" = "$main_before_e" ] || exit 1
+[ "$(git -C "$ws_e/github-projects-skill" rev-parse HEAD)" = "$head_before_e" ] || exit 1
+grep -Fq 'Already current/synced: 1' <<<"$output_e" || {
+  printf 'Scenario 5: expected the canonical repo to count as already current.\nActual output:\n%s\n' "$output_e" >&2
+  exit 1
+}
 
 printf 'canonical skill updater tests passed\n'

@@ -271,8 +271,6 @@ update_canonical_repo() {
     echo "WARNING: no upstream configured for $repo_name; remote sync skipped." >&2
   fi
 
-  echo "Canonical skill repository: skipping installed-skill refresh and push."
-
   if ! restore_stash "$repo_path" "$had_stash"; then
     return 1
   fi
@@ -472,12 +470,29 @@ update_repo() {
 
   if is_canonical_skill_repo "$repo_path"; then
     resolve_canonical_skill_tree_sha
-    if update_canonical_repo "$repo_path" "$repo_name"; then
+    if ! update_canonical_repo "$repo_path" "$repo_name"; then
+      failed_count=$((failed_count + 1))
+      return 1
+    fi
+
+    # The canonical repository also carries its own installed copy for the
+    # agents working in it. Refresh that copy through the ordinary managed path
+    # (which commits to a worktree of the default branch and pushes, or hands
+    # over the stable skill-update pull request when the branch is protected),
+    # but leave it alone when it is absent or already current.
+    if [ ! -f "$repo_path/.agents/skills/$skill_name/SKILL.md" ]; then
+      echo "Canonical skill repository: no installed .agents/skills/$skill_name copy; nothing to refresh."
       unchanged_count=$((unchanged_count + 1))
       return 0
     fi
-    failed_count=$((failed_count + 1))
-    return 1
+
+    if installed_skill_is_current "$repo_path"; then
+      echo "Canonical skill repository: installed $skill_name copy already matches canonical main."
+      unchanged_count=$((unchanged_count + 1))
+      return 0
+    fi
+
+    echo "Canonical skill repository: installed $skill_name copy is stale; refreshing it like a managed repository."
   fi
 
   update_managed_repo "$repo_path" "$repo_name"
