@@ -108,13 +108,15 @@ an issue. The canonical `github-projects` skill and each repository's resolved
 `.projects` contract own routing, authority, mutation and readback semantics;
 `pj` only orchestrates them.
 
-Narrow the queue by repository, Project or configured sub-project. Selectors
-combine by intersection:
+Choose a managed Project and, optionally, a sub-project. The checked contracts
+resolve where its issues live; you do not need to supply the issue repository.
+A repository selector is an optional diagnostic restriction. Selectors combine
+by intersection:
 
 ```bash
-pj -i --repo MiguelRodo/issues
-pj -i --project personal --subproject monitoring
-pj -i --repo MiguelRodo/issues --project personal --subproject monitoring
+pj -i --project work
+pj -i --project work --subproject tools
+pj -i --repo example/issues --project work --subproject tools
 ```
 
 The default agent policy is deterministic-first `auto`:
@@ -137,16 +139,42 @@ GitHub Project semantics locally.
 
 ## Initialise a repository
 
-From inside a Git repository that should start using `github-projects`, the normal
-onboarding command is:
+From inside the implementation repository, express the managed Project and
+optional sub-project. For a new Project, use its owner and number from the web
+address (the number is prompted when omitted):
 
 ```bash
-pj --init
+# Issues live in this repository.
+pj --init --project work --project-owner example --project-number 40
+
+# Issues live in a central store checked out in PJ_WORKSPACE.
+pj --init --project work --issue-store example/issues --project-owner example --project-number 40
+
+# This repository implements a sub-project within that managed Project.
+pj --init --project work --issue-store example/issues --subproject tools --project-owner example --project-number 40
 ```
 
-`--init` adds the canonical `github-projects` skill when needed and then runs the
-skill-owned `init-project.sh` from the target repository. `pj` does not duplicate
-the Project discovery, prompts, contract creation or validation logic.
+Onboarding derives the required labels and reconciles both the central store's
+configuration and this repository's configuration. It previews changes across
+checkouts and asks for confirmation; add `--yes` to confirm that preview in a
+script. Existing matching configuration is preserved, repeated setup is a
+no-op, and conflicting topology stops before writing. An existing Project's
+identity and issue store are reused, so later runs can omit those details.
+
+The central store must already have exactly one local checkout under
+`${PJ_WORKSPACE:-~/planning}`, identified by its checked contract or exact
+GitHub origin. New configuration is prepared on local onboarding branches
+when a checkout is on its default branch. Review, commit and open a PR through
+each affected repository's normal workflow; onboarding does not publish these
+changes. Existing issues and their Project membership are not migrated.
+
+`pj --init` without options still offers guided setup, including existing
+repository-backed single and multiple Projects. Choosing a separate issue
+store enters the same semantic reconciliation flow. The canonical skill owns
+all contract and routing logic; `pj` installs it when needed and forwards setup
+arguments to its `init-project.sh`. Python 3 is required for semantic setup.
+Standard fields and the Backlog view can be set up with the optional `projects`
+CLI; see the skill's onboarding reference.
 
 For the lower-level operation that only adds the shared skill, use:
 

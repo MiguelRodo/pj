@@ -14,7 +14,7 @@ usage() {
 Usage:
   pj [pj options] [agent options] [--] [prompt]
   pj -i [queue options]
-  pj --init
+  pj --init [--project KEY] [--issue-store OWNER/REPO] [--subproject KEY] [--yes]
   pj --add-skill
   pj --update-skill
 
@@ -45,7 +45,11 @@ Queue options:
   --agent auto|before|after           Choose when an agent runs around deterministic processing
 
 Project setup:
-  --init                              Add/update project support and initialise this repository
+  --init [setup options]              Onboard by Project and optional sub-project intent
+  --issue-store OWNER/REPO            With --init, choose where issues live (default: this repo)
+  --project-owner OWNER               With --init, owner of a new managed Project
+  --project-number NUMBER             With --init, number from the Project web address
+  --yes                              With --init, confirm the displayed cross-repository changes
   --add-skill                         Add the github-projects skill to this repository
   --update-skill                      Refresh managed github-projects skill installations
 
@@ -265,7 +269,7 @@ fi
 if [ "${1:-}" = "--init" ] || [ "${1:-}" = "--add-skill" ]; then
   skill_command="$1"
   shift
-  if [ "$#" -gt 0 ]; then
+  if [ "$skill_command" = "--add-skill" ] && [ "$#" -gt 0 ]; then
     echo "pj: $skill_command does not take arguments; run it from the repository that should receive the skill" >&2
     exit 2
   fi
@@ -299,8 +303,12 @@ if [ "${1:-}" = "--init" ] || [ "${1:-}" = "--add-skill" ]; then
       echo "pj: github-projects is installed but its init-project.sh is missing; run 'pj --update-skill' and retry" >&2
       exit 1
     fi
+    if [ "$#" -gt 0 ] && [ ! -f "${init_script%/*}/onboard-project.py" ]; then
+      echo "pj: the installed github-projects skill lacks semantic onboarding; run 'pj --update-skill' and retry" >&2
+      exit 1
+    fi
     cd "$target_repo" || exit 1
-    exec bash "$init_script"
+    PJ_WORKSPACE="$workspace" exec bash "$init_script" "$@"
   fi
 
   if [ ! -f "$target_repo/.projects/project.md" ]; then
