@@ -194,7 +194,7 @@ coverage, and run the complete `tests/*.sh` suite before proposing it.
 <!-- github-projects:start -->
 ## GitHub issues and Projects
 
-For GitHub issue or Project administration, use the shared `github-projects`
-skill from `.agents/skills/github-projects/` and read `.projects/project.md`
-before acting.
+For GitHub issue or Project administration, use
+`.agents/skills/github-projects/SKILL.md` and read
+`.projects/project.md` before acting.
 <!-- github-projects:end -->
