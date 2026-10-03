@@ -22,7 +22,10 @@ if [ "$1" = skill ] && [ "$2" = install ]; then
   cat > .agents/skills/github-projects/scripts/init-project.sh <<'INIT_EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$PWD" > "$PJ_TEST_INIT_PWD"
+case "${1:-}" in unexpected) exit 2 ;; esac
+[ -z "${PJ_TEST_INIT_ARGS:-}" ] || printf '<%s>' "$@" > "$PJ_TEST_INIT_ARGS"
 INIT_EOF
+  touch .agents/skills/github-projects/scripts/onboard-project.py
   chmod +x .agents/skills/github-projects/scripts/init-project.sh
   exit 0
 fi
@@ -111,4 +114,21 @@ if (
   exit 1
 fi
 
+(
+  cd "$init_target/subdir" &&
+  HOME="$tmp/home" PJ_WORKSPACE="$workspace" PJ_TEST_INIT_PWD="$init_script_pwd_log" \
+    PJ_TEST_INIT_ARGS="$tmp/init.args" PATH="$tmp/bin:$PATH" \
+    bash "$pj" --init --project work --issue-store octo/issues --subproject tools --yes
+) || exit 1
+[ "$(cat "$tmp/init.args")" = '<--project><work><--issue-store><octo/issues><--subproject><tools><--yes>' ] || exit 1
+# Older initializers ignore argv; never silently run one for semantic intent.
+rm "$init_target/.agents/skills/github-projects/scripts/onboard-project.py"
+if stale_output="$(
+  cd "$init_target" && HOME="$tmp/home" PJ_WORKSPACE="$workspace" \
+    PATH="$tmp/bin:$PATH" bash "$pj" --init --project work 2>&1
+)"; then
+  echo 'pj accepted semantic intent with an outdated skill' >&2
+  exit 1
+fi
+assert_contains "$stale_output" "run 'pj --update-skill' and retry"
 printf 'add-skill and init tests passed\n'
